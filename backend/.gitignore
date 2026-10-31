@@ -1,0 +1,6 @@
+internal/.env
+/bin/
+/coverage.out
+*.test
+.env
+.idea/

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Ringkasan penjualan harian</title></head>
+<body style="margin:0;padding:24px 12px;background:#f2f5f7;color:#182333;font-family:Arial,Helvetica,sans-serif;line-height:1.5">
+<table role="presentation" style="width:100%;max-width:680px;margin:0 auto;border-collapse:collapse;background:#ffffff;border:1px solid #dce3eb;border-radius:16px">
+<tr><td style="padding:30px;background:#0f766e;color:#ffffff"><p style="margin:0 0 6px;font-size:12px;letter-spacing:2px">LAPORAN HARIAN</p><h1 style="margin:0;font-size:26px">{{.Record.NamaToko}}</h1><p style="margin:6px 0 0">{{.Tanggal}} · WIB</p></td></tr>
+<tr><td style="padding:28px 30px 12px"><h2 style="margin:0;font-size:18px">Ringkasan penjualan</h2><p style="margin:6px 0 18px;color:#5c6b7c;font-size:13px">{{.Snapshot.JumlahSelesai}} transaksi berhasil · {{.Snapshot.JumlahBatal}} transaksi dibatalkan</p>
+<table style="width:100%;border-collapse:collapse;font-size:14px">
+<tr><td style="padding:10px 0">Total sebelum pembatalan</td><td style="text-align:right">{{money .Snapshot.TotalSebelumPembatalan}}</td></tr>
+<tr><td style="padding:10px 0;color:#ba3547">Dibatalkan (tidak termasuk penjualan berhasil)</td><td style="text-align:right;color:#ba3547">{{money .Snapshot.TotalBatal}}</td></tr>
+<tr style="background:#e9f6f3;font-weight:bold"><td style="padding:14px 10px">Total penjualan berhasil</td><td style="padding:14px 10px;text-align:right">{{money .Snapshot.TotalSelesai}}</td></tr>
+</table></td></tr>
+<tr><td style="padding:16px 30px"><h2 style="margin:0 0 12px;font-size:18px">Per metode pembayaran</h2>
+<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#edf1f5"><th style="text-align:left;padding:10px">Metode</th><th style="text-align:right;padding:10px">Berhasil</th><th style="text-align:right;padding:10px">Dibatalkan</th></tr></thead><tbody>
+{{range .Snapshot.Metode}}<tr><td style="padding:10px;border-bottom:1px solid #dce3eb">{{.Nama}}<br><small style="color:#5c6b7c">{{.JumlahSelesai}} berhasil · {{.JumlahBatal}} batal</small></td><td style="text-align:right;padding:10px;border-bottom:1px solid #dce3eb">{{money .TotalSelesai}}</td><td style="text-align:right;padding:10px;border-bottom:1px solid #dce3eb">{{money .TotalBatal}}</td></tr>{{else}}<tr><td colspan="3" style="padding:12px;color:#5c6b7c">Tidak ada transaksi.</td></tr>{{end}}
+<tr><td style="padding:12px 10px;font-weight:bold">Total semua metode</td><td style="text-align:right;padding:12px 10px;font-weight:bold">{{money .Snapshot.TotalSelesai}}</td><td style="text-align:right;padding:12px 10px">{{money .Snapshot.TotalBatal}}</td></tr>
+</tbody></table>
+<p style="font-size:13px;color:#5c6b7c">Tunai: {{money .Snapshot.TotalCash}} · Non-tunai: {{money .Snapshot.TotalNonCash}}</p></td></tr>
+{{if ge .Snapshot.Versi 2}}
+<tr><td style="padding:16px 30px"><h2 style="margin:0 0 12px;font-size:18px">Belanja toko hari ini</h2>
+<table style="width:100%;font-size:14px"><tr><td>Alokasi belanja dari kemarin</td><td style="text-align:right">{{money .Snapshot.AlokasiSebelumnya}}</td></tr><tr><td>Total belanja semua metode</td><td style="text-align:right">{{money .Snapshot.TotalPembelian}}</td></tr><tr><td>Sisa / kekurangan anggaran</td><td style="text-align:right">{{money .Snapshot.SelisihBelanja}}</td></tr></table>
+{{range .Snapshot.Pembelian}}<p style="font-size:13px;margin:14px 0 4px"><strong>{{if .Nomor}}{{.Nomor}}{{else}}Pengeluaran #{{.CatatanID}}{{end}} · {{money .Total}}</strong> · {{.Metode}}</p>{{if .Catatan}}<p style="font-size:12px;color:#5c6b7c;margin:4px 0">{{.Catatan}}</p>{{end}}{{range .Items}}<p style="font-size:12px;margin:3px 0">{{.Nama}} × {{.Jumlah}} · {{money .Subtotal}}</p>{{end}}{{end}}
+</td></tr>{{end}}
+<tr><td style="padding:16px 30px"><h2 style="margin:0 0 12px;font-size:18px">Ringkasan dana harian</h2>
+<table style="width:100%;border-collapse:collapse;font-size:14px">
+<tr><td style="padding:8px 0">Penjualan semua metode</td><td style="text-align:right">{{money .Snapshot.TotalSelesai}}</td></tr>
+{{if ge .Snapshot.Versi 2}}<tr><td style="padding:8px 0">Alokasi dari kemarin</td><td style="text-align:right">+ {{money .Snapshot.AlokasiSebelumnya}}</td></tr><tr><td style="padding:8px 0">Belanja hari ini (semua metode)</td><td style="text-align:right">− {{money .Snapshot.TotalPembelian}}</td></tr>{{else}}<tr><td style="padding:8px 0">Pembelian tunai (format lama)</td><td style="text-align:right">− {{money .Snapshot.PembelianCash}}</td></tr>{{end}}
+<tr><td style="padding:10px 0;font-weight:bold">Total dana seharusnya</td><td style="text-align:right;font-weight:bold">{{money .Record.TotalDanaSeharusnya}}</td></tr>
+<tr><td style="padding:8px 0">Total uang aktual</td><td style="text-align:right">{{money .Record.TotalDanaAktual}}</td></tr>
+{{if lt .Snapshot.Versi 2}}<tr><td style="padding:8px 0">Uang fisik (format lama)</td><td style="text-align:right">{{money .Record.KasAktual}}</td></tr>{{end}}
+<tr><td style="padding:8px 0">Selisih aktual − seharusnya</td><td style="text-align:right">{{money .Record.SelisihKas}}</td></tr>
+</table></td></tr>
+<tr><td style="padding:10px 30px 24px"><table role="presentation" style="width:100%;background:#e9f6f3;border-collapse:collapse"><tr><td style="padding:16px"><strong>Alokasi belanja toko besok</strong><p style="margin:5px 0">{{money .Record.BelanjaBesok}}</p><span style="color:#5c6b7c;font-size:12px">Alokasi ini belum menjadi pembelian hari ini.</span></td></tr><tr><td style="padding:0 16px 16px"><strong>Uang diterima sesungguhnya setelah alokasi: {{money .Record.SisaKas}}</strong></td></tr></table></td></tr>
+{{if .Record.Catatan}}<tr><td style="padding:0 30px 20px"><strong>Catatan</strong><p style="margin:6px 0;white-space:pre-wrap;font-size:14px">{{.Record.Catatan}}</p></td></tr>{{end}}
+<tr><td style="padding:20px 30px;border-top:1px solid #dce3eb;color:#5c6b7c;font-size:12px">Dicatat oleh {{.Record.NamaPencatat}} · {{.Disimpan}} WIB · Laporan #{{.Record.ID}}<br>Data transaksi dihitung sampai {{.Dihitung}} WIB. Pembatalan dikelompokkan menurut tanggal transaksi, bukan tanggal refund. Koreksi disimpan sebagai laporan baru; laporan ini tidak berubah otomatis.</td></tr>
+</table></body></html>

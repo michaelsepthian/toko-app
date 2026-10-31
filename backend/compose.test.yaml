@@ -1,0 +1,15 @@
+# Database ini hanya untuk integration test. Tidak berisi data Supabase asli.
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: toko_test_only
+      POSTGRES_DB: toko_test
+    ports:
+      - "127.0.0.1:55439:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d toko_test"]
+      interval: 2s
+      timeout: 2s
+      retries: 20

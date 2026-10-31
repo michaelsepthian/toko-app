@@ -1,0 +1,104 @@
+'use client'
+import { useEffect, useRef, useState } from 'react'
+import { LoaderCircle, X } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { api, message } from '@/lib/api'
+import type { Data, Transaction } from '@/lib/types'
+import { jakartaDay } from '@/lib/history-date'
+import { dateTime, money } from '@/lib/pos'
+import { ErrorBox, Field, Panel } from './common'
+import { DailySummary } from './daily-summary'
+
+export function History({ data, owner, refresh, print, storeName, userID }: { storeName: string; userID: number; data: Data; owner: boolean; refresh: () => Promise<void>; print: (sale: Transaction) => Promise<void> }) {
+  const [purchase, setPurchase] = useState(false)
+  const [summaryOpen, setSummaryOpen] = useState(false)
+  const [rows, setRows] = useState<Transaction[]>([])
+  const [offset, setOffset] = useState(0)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [date, setDate] = useState(() => jakartaDay())
+  const [target, setTarget] = useState<{ id: number; nomor: string } | null>(null)
+  const [selected, setSelected] = useState<Transaction | null>(null)
+  const [detailBusy, setDetailBusy] = useState(false)
+  const [detailError, setDetailError] = useState('')
+  const [detailAttempt, setDetailAttempt] = useState(0)
+  const [actionBusy, setActionBusy] = useState(false)
+  const [reason, setReason] = useState('')
+  const dialogRef = useRef<HTMLDialogElement>(null)
+  const path = purchase ? 'pembelian' : 'penjualan'
+  const query = `/${path}?limit=20&offset=${offset}${purchase ? '' : `&tanggal=${encodeURIComponent(date)}`}`
+  const dialogOpen = Boolean(target)
+
+  async function load() {
+    setBusy(true); setError('')
+    try { setRows(await api<Transaction[]>(query)) }
+    catch (err) { setError(message(err)) }
+    finally { setBusy(false) }
+  }
+  useEffect(() => {
+    if (summaryOpen) { setBusy(false); return }
+    let active = true
+    setBusy(true); setError(''); setTarget(null); setRows([])
+    void api<Transaction[]>(query).then(rows => { if (active) setRows(rows) })
+      .catch(err => { if (active) setError(message(err)) })
+      .finally(() => { if (active) setBusy(false) })
+    return () => { active = false }
+  }, [query, summaryOpen])
+  useEffect(() => {
+    if (!target) return
+    let active = true
+    setDetailBusy(true); setDetailError(''); setSelected(null)
+    void api<Transaction>(`/${path}/${target.id}`).then(row => { if (active) setSelected(row) })
+      .catch(err => { if (active) setDetailError(message(err)) })
+      .finally(() => { if (active) setDetailBusy(false) })
+    return () => { active = false }
+  }, [path, target, detailAttempt])
+  useEffect(() => {
+    if (!dialogOpen || !dialogRef.current) return
+    const dialog = dialogRef.current
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    dialog.showModal()
+    return () => { dialog.close(); document.body.style.overflow = previousOverflow }
+  }, [dialogOpen])
+  function closeDetail() { if (!actionBusy) setTarget(null) }
+  function openDetail(row: Transaction) {
+    setSelected(null); setDetailBusy(true); setDetailError(''); setReason('')
+    setTarget({ id: row.id, nomor: row.nomor })
+  }
+
+  return <div className="mx-auto max-w-6xl space-y-5 p-5">
+    <div className="flex flex-wrap gap-2"><Button disabled={busy} variant={!purchase && !summaryOpen ? 'default' : 'outline'} onClick={() => { setSummaryOpen(false); setPurchase(false); setOffset(0) }}>Riwayat Penjualan</Button>{owner && <Button disabled={busy} variant={purchase && !summaryOpen ? 'default' : 'outline'} onClick={() => { setSummaryOpen(false); setPurchase(true); setOffset(0) }}>Riwayat Pembelian</Button>}{owner && <Button disabled={busy} variant={summaryOpen ? 'default' : 'outline'} onClick={() => { setSummaryOpen(true); setTarget(null) }}>Ringkasan Harian</Button>}{!summaryOpen && <Button variant="outline" disabled={busy} onClick={() => void load()}>Muat ulang</Button>}</div>
+    {summaryOpen && owner ? <DailySummary storeName={storeName} userID={userID} /> : <>
+    <ErrorBox>{error}</ErrorBox>
+    {!purchase && <div className="flex flex-wrap items-end gap-3 rounded-2xl border bg-card p-4"><Field label="Tanggal penjualan (WIB)" type="date" value={date} disabled={busy} onChange={value => { if (value) { setDate(value); setOffset(0) } }} /><Button variant="outline" disabled={busy} onClick={() => { setDate(jakartaDay()); setOffset(0) }}>Hari ini</Button><p className="pb-3 text-sm text-muted-foreground">Menampilkan penjualan pada tanggal yang dipilih.</p></div>}
+    <Panel title={`Riwayat ${purchase ? 'Pembelian' : 'Penjualan'}`} subtitle={purchase ? undefined : `Tanggal ${date} · WIB`}>
+      <div className="divide-y">{rows.map(row => <article key={row.id} className="flex flex-wrap items-center justify-between gap-3 py-4"><div><strong className="break-all">{row.nomor}</strong><p className="text-sm text-muted-foreground">{dateTime(row.tanggal)} · {data.payments.find(p => p.id === row.metode_pembayaran_id)?.nama} · {row.status}</p></div><strong>{money(row.total_tagihan ?? row.total_pembayaran ?? '0')}</strong><Button variant="outline" disabled={busy} aria-haspopup="dialog" aria-label={`Detail ${row.nomor}`} onClick={() => openDetail(row)}>Detail</Button></article>)}{!rows.length && <p className="py-8 text-muted-foreground">{busy ? 'Memuat…' : purchase ? 'Belum ada transaksi.' : 'Tidak ada penjualan pada tanggal ini.'}</p>}</div>
+      <div className="mt-5 flex items-center justify-between"><Button variant="outline" disabled={busy || offset === 0} onClick={() => setOffset(n => Math.max(0, n - 20))}>Sebelumnya</Button><span className="text-sm">Halaman {offset / 20 + 1}</span><Button variant="outline" disabled={busy || rows.length < 20} onClick={() => setOffset(n => n + 20)}>Berikutnya</Button></div>
+    </Panel>
+    {target && <dialog ref={dialogRef} className="history-detail-dialog" aria-labelledby="history-detail-title" onCancel={event => { event.preventDefault(); closeDetail() }}>
+      <div className="history-detail-heading"><div><p className="text-sm text-muted-foreground">Detail {purchase ? 'Pembelian' : 'Penjualan'}</p><h2 id="history-detail-title" className="break-all text-xl font-bold">{target.nomor}</h2></div><Button autoFocus variant="outline" disabled={actionBusy} aria-label="Tutup detail transaksi" onClick={closeDetail}><X /></Button></div>
+      <div className="history-detail-body">
+        <ErrorBox>{detailError}</ErrorBox>
+        {detailBusy && <p role="status" className="flex items-center justify-center gap-3 py-12"><LoaderCircle className="size-6 animate-spin" />Memuat detail transaksi…</p>}
+        {!detailBusy && !selected && detailError && <Button className="mt-4" variant="outline" onClick={() => setDetailAttempt(value => value + 1)}>Coba lagi</Button>}
+        {selected && <>
+          <p className="mb-3 text-sm">{dateTime(selected.tanggal)} · Status: {selected.status} · {data.payments.find(payment => payment.id === selected.metode_pembayaran_id)?.nama}{purchase && selected.sumber_pembelian_id ? ` · ${data.sources.find(source => source.id === selected.sumber_pembelian_id)?.nama ?? ''}` : ''}</p>
+          {selected.detail?.map(line => <div key={line.id} className="flex justify-between gap-3 border-b py-3"><span className="min-w-0 break-words">{line.nama_produk}<small className="block text-muted-foreground">{line.jumlah} × {money(line.harga_jual ?? line.harga_beli ?? '0')} · diskon {money(line.diskon)}</small></span><strong className="shrink-0">{money(line.subtotal)}</strong></div>)}
+          <dl className="my-4 space-y-2"><div className="flex justify-between"><dt>Diskon transaksi</dt><dd>{money(selected.diskon_transaksi)}</dd></div><div className="flex justify-between"><dt>Biaya pembayaran</dt><dd>{money(selected.biaya_pembayaran)}</dd></div><div className="flex justify-between gap-3 text-xl font-bold"><dt>Total</dt><dd>{money(selected.total_tagihan ?? selected.total_pembayaran ?? '0')}</dd></div>{!purchase && <><div className="flex justify-between"><dt>Uang diterima</dt><dd>{money(selected.jumlah_dibayar ?? '0')}</dd></div><div className="flex justify-between"><dt>Kembalian</dt><dd>{money(selected.kembalian ?? '0')}</dd></div></>}</dl>
+          {!purchase && selected.status === 'SELESAI' && <Button disabled={actionBusy} onClick={async () => { setActionBusy(true); setDetailError(''); try { await print(selected) } catch (err) { setDetailError(message(err)) } finally { setActionBusy(false) } }}>Cetak Ulang Struk</Button>}
+          {owner && selected.status === 'SELESAI' && <form className="mt-5 flex flex-col gap-3 rounded-xl border p-4" onSubmit={async event => {
+            event.preventDefault(); if (actionBusy) return
+            if (!window.confirm(`Batalkan ${selected.nomor}? Stok akan dibalik. Proses refund dilakukan terpisah.`)) return
+            setActionBusy(true); setDetailError('')
+            try { await api(`/${path}/${selected.id}/batal`, 'POST', { alasan: reason }); await refresh(); await load(); setTarget(null); setReason('') }
+            catch (err) { setDetailError(message(err)) }
+            finally { setActionBusy(false) }
+          }}><Field label="Alasan pembatalan" value={reason} onChange={setReason} required disabled={actionBusy} /><Button type="submit" variant="outline" disabled={actionBusy}>Batalkan Transaksi</Button></form>}
+        </>}
+      </div>
+      <div className="history-detail-footer"><Button variant="outline" disabled={actionBusy} onClick={closeDetail}>Tutup <kbd>Esc</kbd></Button></div>
+    </dialog>}
+    </>}
+  </div>
+}

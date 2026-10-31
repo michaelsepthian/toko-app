@@ -1,0 +1,13 @@
+{$APP_DOMAIN} {
+	encode zstd gzip
+
+	@api path /api/v1 /api/v1/*
+	handle @api {
+		# Pertahankan prefix /api/v1 yang diperlukan router Go.
+		reverse_proxy api:8080
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
+}
