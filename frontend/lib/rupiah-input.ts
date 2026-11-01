@@ -7,6 +7,6 @@ export function formatRupiahInput(value: string) {
 export function parseRupiahInput(value: string): string | null {
   const text = value.trim().replace(/^Rp\s*/i, '').replace(/\s/g, '')
   if (!/^[\d.]*(?:,\d{0,2})?$/.test(text)) return null
-  const raw = text.replace(/\./g, '').replace(',', '.')
+  const raw = text.replace(/\./g, '').replace(',', '.').replace(/^0+(?=\d)/, '')
   return raw.startsWith('.') ? `0${raw}` : raw
 }

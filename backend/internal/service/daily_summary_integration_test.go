@@ -55,14 +55,36 @@ func TestDailySummaryIntegration(t *testing.T) {
 		_ = adminPool.Close()
 	})
 	_, file, _, _ := runtime.Caller(0)
-	schema, err := os.ReadFile(filepath.Join(filepath.Dir(file), "../../../supabase/schema.sql"))
+	schema, err := os.ReadFile(filepath.Join(filepath.Dir(file), "../../../database/schema.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Exec(string(schema)).Error; err != nil {
 		t.Fatal(err)
 	}
-	migration, err := os.ReadFile(filepath.Join(filepath.Dir(file), "../../../supabase/ringkasan_harian.sql"))
+	t.Run("legacy income dates are backfilled in WIB without changing actual timestamps", func(t *testing.T) {
+		var legacy struct {
+			ID      int64
+			Tanggal time.Time
+		}
+		if err := db.Raw(`WITH owner AS (
+			INSERT INTO public.pengguna(nama,username,peran,aktif)
+			VALUES ('Migration owner','migration_owner','PEMILIK',true) RETURNING id
+		) INSERT INTO public.penjualan(pengguna_id,metode_pembayaran_id,tanggal)
+		SELECT owner.id,m.id,'2026-02-07T17:30:00Z'::timestamptz FROM owner
+		JOIN public.metode_pembayaran m ON m.nama='Cash' RETURNING id,tanggal`).Scan(&legacy).Error; err != nil {
+			t.Fatal(err)
+		}
+		applyIncomeDateMigration(t, db)
+		var migrated model.Penjualan
+		if err := db.First(&migrated, legacy.ID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if string(migrated.TanggalPendapatan) != "2026-02-08" || !migrated.Tanggal.Equal(legacy.Tanggal) {
+			t.Fatal("legacy timestamp or WIB income day changed", migrated)
+		}
+	})
+	migration, err := os.ReadFile(filepath.Join(filepath.Dir(file), "../../../database/migrations/ringkasan_harian.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +133,7 @@ func TestDailySummaryIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	correction, err := os.ReadFile(filepath.Join(filepath.Dir(file), "../../../supabase/ringkasan_pengeluaran.sql"))
+	correction, err := os.ReadFile(filepath.Join(filepath.Dir(file), "../../../database/migrations/ringkasan_pengeluaran.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,5 +387,127 @@ func TestDailySummaryIntegration(t *testing.T) {
 			t.Fatal("voided note counted", snapshot, err)
 		}
 	})
-
+	t.Run("income date controls summary while history and stock keep actual timestamps", func(t *testing.T) {
+		category := model.Kategori{Nama: "Income date category"}
+		unit := model.Satuan{Nama: "Income date unit"}
+		if err := db.Create(&category).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Create(&unit).Error; err != nil {
+			t.Fatal(err)
+		}
+		product := model.Produk{Nama: "Income date product", SKU: "INCOME-DATE", KategoriID: category.ID, SatuanID: unit.ID, HargaJual: money(10000), Aktif: true}
+		if err := db.Create(&product).Error; err != nil {
+			t.Fatal(err)
+		}
+		day := "2026-02-09"
+		today := time.Now().In(time.FixedZone("WIB", 7*3600)).Format("2006-01-02")
+		beforeToday, err := svc.PreviewDailySummary(ctx, today)
+		if err != nil {
+			t.Fatal(err)
+		}
+		key := "00000000-0000-4000-8000-000000000140"
+		in := service.TransactionInput{TanggalPendapatan: &day, IdempotencyKey: &key, MetodePembayaranID: cash.ID, JumlahDibayar: money(10000), Items: []service.ItemInput{{ProdukID: product.ID, Jumlah: money(1)}}}
+		result, err := svc.CreateTransaction(ctx, user.ID, false, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sale := result.(model.Penjualan)
+		if string(sale.TanggalPendapatan) != day || sale.Tanggal.In(time.FixedZone("WIB", 7*3600)).Format("2006-01-02") != today {
+			t.Fatal("income date overwrote actual history timestamp", sale)
+		}
+		var movement model.MutasiStok
+		if err := db.Where("produk_id = ?", product.ID).Take(&movement).Error; err != nil {
+			t.Fatal(err)
+		}
+		if movement.Tanggal.In(time.FixedZone("WIB", 7*3600)).Format("2006-01-02") != today {
+			t.Fatal("stock movement was backdated")
+		}
+		if retry, err := svc.CreateTransaction(ctx, user.ID, false, in); err != nil || retry.(model.Penjualan).ID != sale.ID {
+			t.Fatal("income date retry", err)
+		}
+		otherDay := "2026-02-08"
+		changed := in
+		changed.TanggalPendapatan = &otherDay
+		if _, err := svc.CreateTransaction(ctx, user.ID, false, changed); err == nil {
+			t.Fatal("same idempotency key accepted a different income day")
+		}
+		// Re-running the migration must preserve a deliberately selected income day.
+		applyIncomeDateMigration(t, db)
+		applyIncomeDateMigration(t, db)
+		if err := db.First(&sale, sale.ID).Error; err != nil || string(sale.TanggalPendapatan) != day {
+			t.Fatal("migration overwrote selected income day", err)
+		}
+		preview, err := svc.PreviewDailySummary(ctx, day)
+		if err != nil || !preview.TotalSelesai.Equal(money(10000)) {
+			t.Fatal("sale not allocated to income day", preview, err)
+		}
+		afterToday, err := svc.PreviewDailySummary(ctx, today)
+		if err != nil || !beforeToday.TotalSelesai.Equal(afterToday.TotalSelesai) {
+			t.Fatal("backdated revenue leaked into actual recording day", err)
+		}
+		counted := money(10000)
+		report, err := svc.SaveDailySummary(ctx, user, service.DailySummaryInput{VersiPerhitungan: 2, IdempotencyKey: "00000000-0000-4000-8000-000000000141", Tanggal: day, HashSumber: preview.HashSumber, NamaToko: "Income test", KasAktual: &counted})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// PostgreSQL jsonb canonicalizes whitespace/key order on persistence.
+		if err := db.First(&report, report.ID).Error; err != nil {
+			t.Fatal(err)
+		}
+		// The HTTP history filter must continue to use the actual recording day.
+		for _, fixture := range []struct {
+			day      string
+			included bool
+		}{{day, false}, {today, true}} {
+			request := httptest.NewRequest("GET", "/api/v1/penjualan?tanggal="+fixture.day, nil)
+			request.Header.Set("Authorization", "Bearer "+ownerToken)
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != 200 {
+				t.Fatal(response.Code, response.Body.String())
+			}
+			var body struct {
+				Data []model.Penjualan `json:"data"`
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, row := range body.Data {
+				if row.ID == sale.ID {
+					found = true
+				}
+			}
+			if found != fixture.included {
+				t.Fatal("history filtered by income date instead of actual date", fixture.day)
+			}
+		}
+		if err := svc.Cancel(ctx, user.ID, sale.ID, false, "Test cancellation on actual recording day"); err != nil {
+			t.Fatal(err)
+		}
+		canceled, err := svc.PreviewDailySummary(ctx, day)
+		if err != nil || !canceled.TotalSelesai.IsZero() || !canceled.TotalCash.IsZero() || !canceled.TotalBersih.IsZero() || !canceled.TotalBatal.Equal(money(10000)) || canceled.JumlahBatal != 1 || canceled.HashSumber == preview.HashSumber {
+			t.Fatal("cancellation did not remove original-day revenue exactly once", canceled, err)
+		}
+		if err := db.First(&sale, sale.ID).Error; err != nil || sale.Tanggal.In(time.FixedZone("WIB", 7*3600)).Format("2006-01-02") != today || string(sale.TanggalPendapatan) != day {
+			t.Fatal("cancellation changed timestamps", sale, err)
+		}
+		stock, err := repository.Stock(db, product.ID)
+		if err != nil || !stock.IsZero() {
+			t.Fatal("cancellation did not reverse stock", stock, err)
+		}
+		var savedReport model.RingkasanHarian
+		if err := db.First(&savedReport, report.ID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if string(savedReport.Snapshot) != string(report.Snapshot) {
+			t.Fatal("saved report history was silently rewritten")
+		}
+		future := time.Now().AddDate(0, 0, 2).Format("2006-01-02")
+		in.TanggalPendapatan = &future
+		if _, err := svc.CreateTransaction(ctx, user.ID, false, in); err == nil {
+			t.Fatal("future income day accepted")
+		}
+	})
 }

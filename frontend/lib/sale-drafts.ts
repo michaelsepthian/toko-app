@@ -1,9 +1,10 @@
 import type { CartLine } from './types'
+import { validIncomeDate } from './income-date'
 
 export type SaleSlot = number
-export type SaleDraft = { id: number; cart: CartLine[]; methodID: number | null; paid: string; reference: string; print: boolean }
+export type SaleDraft = { id: number; cart: CartLine[]; methodID: number | null; paid: string; reference: string; print: boolean; incomeDate?: string }
 export type SaleDrafts = { version: 2; active: SaleSlot; nextId: number; drafts: SaleDraft[] }
-export const emptySaleDraft = (id = 0): SaleDraft => ({ id, cart: [], methodID: null, paid: '', reference: '', print: false })
+export const emptySaleDraft = (id = 0): SaleDraft => ({ id, cart: [], methodID: null, paid: '', reference: '', print: false, incomeDate: '' })
 export const emptySaleDrafts = (): SaleDrafts => ({ version: 2, active: 0, nextId: 1, drafts: [emptySaleDraft()] })
 
 function validDraft(value: unknown): value is SaleDraft {
@@ -16,7 +17,8 @@ function validDraft(value: unknown): value is SaleDraft {
     typeof line.product.nama === 'string' && typeof line.product.sku === 'string' &&
     money(line.product.harga_jual) && amount(line.quantity) && money(line.price) && money(line.discount)
   ) && new Set(draft.cart.map(line => line.product.id)).size === draft.cart.length && (draft.methodID === null || (Number.isSafeInteger(draft.methodID) && draft.methodID > 0)) &&
-    amount(draft.paid) && typeof draft.reference === 'string' && typeof draft.print === 'boolean'
+    amount(draft.paid) && typeof draft.reference === 'string' && typeof draft.print === 'boolean' &&
+    (draft.incomeDate === undefined || draft.incomeDate === '' || (typeof draft.incomeDate === 'string' && validIncomeDate(draft.incomeDate)))
 }
 
 export function parseSaleDrafts(text: string): SaleDrafts {
@@ -52,7 +54,7 @@ export function removeSaleDraft(state: SaleDrafts, slot: SaleSlot): SaleDrafts {
 export function completeSaleDraft(state: SaleDrafts, id: number): SaleDrafts {
   const slot = state.drafts.findIndex(draft => draft.id === id)
   if (slot < 0) return state
-  if (slot === 0) return { ...updateSaleDraft(state, 0, { cart: [], paid: '', reference: '', methodID: null }), active: 0 }
+  if (slot === 0) return { ...updateSaleDraft(state, 0, { cart: [], paid: '', reference: '', methodID: null, incomeDate: '' }), active: 0 }
   return { ...removeSaleDraft(state, slot), active: 0 }
 }
 

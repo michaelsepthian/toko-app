@@ -1,0 +1,142 @@
+PANDUAN MENAMBAHKAN USER DAN AKSES SSH VPS
+
+Contoh user: michael
+IP publik: 103.119.237.53
+Port SSH publik: 20153
+Port SSH di dalam VPS: 22
+
+1. MEMBUAT USER (jalankan di VPS sebagai root)
+
+adduser michael
+
+Tentukan password user dan ketik ulang. Password tidak terlihat saat diketik.
+Informasi tambahan boleh dikosongkan dengan Enter. Konfirmasi dengan Y.
+
+usermod -aG sudo michael
+id michael
+
+Pastikan hasil id mencantumkan grup sudo. Grup ini mengizinkan user
+menjalankan perintah administrator dengan sudo.
+
+2. MENGUJI USER (masih di VPS)
+
+su - michael
+whoami
+pwd
+sudo whoami
+
+Hasil yang diharapkan: michael, /home/michael, lalu root.
+Saat sudo meminta password, gunakan password user michael.
+Tes ini belum membuktikan login SSH dari Mac berhasil.
+
+3. MENYALIN KUNCI PUBLIK (jalankan di Mac)
+
+ls -l ~/.ssh/*.pub
+
+Pada Mac ini sudah tersedia id_ed25519.pub. Salin kunci publiknya:
+
+pbcopy < ~/.ssh/id_ed25519.pub
+
+File .pub adalah kunci publik. Jangan membagikan atau menyalin isi private
+key ~/.ssh/id_ed25519 ke server maupun ke chat.
+
+4. MEMASANG KUNCI (jalankan di VPS sebagai michael)
+
+whoami
+echo "$HOME"
+
+Pastikan hasilnya michael dan /home/michael sebelum melanjutkan.
+
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+nano ~/.ssh/authorized_keys
+
+Tempel kunci publik dari Mac dengan Command + V pada baris baru.
+Setiap kunci harus satu baris utuh. Tampilan yang membungkus otomatis
+tidak masalah. Jangan menimpa kunci lain yang sudah ada.
+Simpan: Control + O, Enter. Keluar: Control + X.
+
+chmod 600 ~/.ssh/authorized_keys
+
+5. MENGUJI LOGIN DARI MAC
+
+Biarkan sesi VPS lama terbuka sampai login baru berhasil.
+Di tab Terminal Mac yang baru, jalankan:
+
+ssh -p 20153 -o IdentitiesOnly=yes -i ~/.ssh/id_ed25519 michael@103.119.237.53
+
+Jika diminta passphrase, gunakan passphrase kunci SSH Mac.
+Setelah masuk, uji:
+
+whoami
+sudo whoami
+
+Hasilnya michael, lalu root.
+
+6. MEMBUAT NAMA KONEKSI SINGKAT (opsional, di Mac)
+
+nano ~/.ssh/config
+
+Tambahkan blok berikut di bagian paling atas tanpa menghapus konfigurasi lain:
+
+Host toko-vps
+    HostName 103.119.237.53
+    User michael
+    Port 20153
+    IdentityFile ~/.ssh/id_ed25519
+    IdentitiesOnly yes
+
+Simpan file, lalu jalankan:
+
+chmod 600 ~/.ssh/config
+ssh toko-vps
+
+7. CATATAN PORT DAN FIREWALL
+
+Koneksi VPS ini memakai penerusan port:
+Mac -> 103.119.237.53:20153 -> 10.10.0.155:22
+
+Dari Mac gunakan port 20153, sedangkan firewall Ubuntu mengizinkan port 22.
+Port publik dapat dilihat di dashboard VPS Indonesia: tab Akses,
+bagian Perintah SSH. Jangan menganggap port publik selalu sama dengan
+port yang terlihat pada SSH_CONNECTION di dalam server.
+
+Pada sesi sebelumnya UFW sudah diaktifkan dengan aturan berikut.
+Ini catatan konfigurasi, tidak perlu diulang jika sudah aktif:
+
+sudo ufw allow 22/tcp
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw enable
+sudo ufw status verbose
+
+Selalu izinkan port SSH internal yang benar sebelum mengaktifkan firewall,
+dan uji koneksi baru sebelum menutup sesi lama.
+
+8. JIKA LOGIN GAGAL
+
+Permission denied (publickey): koneksi mencapai SSH, tetapi autentikasi
+kunci gagal. Cocokkan sidik jari:
+
+Di Mac:
+ssh-keygen -lf ~/.ssh/id_ed25519.pub
+
+Di VPS sebagai michael:
+ssh-keygen -lf ~/.ssh/authorized_keys
+ls -ld /home/michael /home/michael/.ssh /home/michael/.ssh/authorized_keys
+
+Salah satu SHA256 harus sama. Folder dan file harus dimiliki michael;
+izin .ssh adalah 700 dan authorized_keys adalah 600.
+Kunci yang sama tercatat dua kali tidak menyebabkan kegagalan login.
+
+Connection refused: koneksi ditolak sebelum pemeriksaan kunci.
+Pada kasus kita penyebabnya memakai port publik 22, seharusnya 20153.
+Tidak perlu mengganti kunci atau menonaktifkan firewall untuk memperbaikinya.
+
+Pemeriksaan di VPS bila diperlukan:
+sudo systemctl status ssh.service ssh.socket --no-pager
+sudo ss -lntp
+sudo ufw status verbose
+sudo journalctl -u ssh.service --since "5 minutes ago" --no-pager -n 30
+
+Jangan tutup sesi yang masih terhubung selama memperbaiki akses SSH.

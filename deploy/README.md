@@ -38,7 +38,8 @@ Supabase tidak diperlukan untuk instalasi baru; login username/password tetap te
    ```
 
    Saat volume masih kosong, PostgreSQL membuat role `toko_app` tanpa hak superuser
-   dan menjalankan `supabase/schema.sql` sebagai pemilik tabel tersebut. Sequence,
+   dan menjalankan `database/schema.sql` serta migrasi tanggal pendapatan di
+   `database/migrations/20261101_tanggal_pendapatan.sql` sebagai pemilik tabel. Sequence,
    trigger, satuan, dan metode pembayaran awal ikut dibuat. Backend menunggu
    PostgreSQL siap sebelum mulai menerima koneksi.
 
@@ -103,7 +104,7 @@ belum memiliki flag favorit:
 ```sh
 docker compose --env-file .env.docker exec -T postgres \
   sh -c 'exec psql -U postgres -d "$POSTGRES_DB" -v ON_ERROR_STOP=1' \
-  < supabase/produk_favorit.sql
+  < database/migrations/produk_favorit.sql
 ```
 
 Jangan menjalankan ulang seluruh `schema.sql` pada database yang sudah berisi tabel.
@@ -113,13 +114,13 @@ Jangan menjalankan ulang seluruh `schema.sql` pada database yang sudah berisi ta
 Setelah registrasi akun pemilik, file impor Excel dapat dijalankan langsung:
 
 ```sh
-./deploy/migrate.sh supabase/impor_db_final.sql
+./deploy/migrate.sh database/private/impor_db_final.sql
 docker compose --env-file .env.docker restart api
 ```
 
 Lalu muat ulang data frontend. Helper juga dapat menjalankan file SQL migrasi lain
 pada database Compose. Detail pemetaan dan pemeriksaan hasil ada di
-[petunjuk impor](../supabase/IMPOR_DB_FINAL.md). File impor tidak dijalankan otomatis
+[petunjuk impor](../database/IMPOR_DB_FINAL.md). File impor tidak dijalankan otomatis
 agar stok awal tidak tercampur dengan transaksi yang sudah berjalan.
 
 ## Backup dan restore
@@ -220,7 +221,7 @@ docker buildx build --platform linux/amd64 \
 ```
 
 Di VPS, salin `compose.yaml`, `compose.vps.yaml`, folder `deploy`, dan
-`supabase/schema.sql`. Go, Node.js, dan source aplikasi tidak diperlukan untuk
+folder `database` (kecuali `database/private`). Go, Node.js, dan source aplikasi tidak diperlukan untuk
 menjalankan image yang sudah dibuat. Untuk database baru, siapkan `.env.docker`
 dengan password VPS yang berbeda dari lokal, lalu isi:
 
@@ -258,17 +259,33 @@ Referensi: [startup order Compose](https://docs.docker.com/compose/how-tos/start
 [inisialisasi PostgreSQL Docker](https://docs.docker.com/guides/postgresql/),
 [multi-stage build](https://docs.docker.com/build/building/multi-stage/).
 
+## Update tanggal pendapatan penjualan
+
+Untuk database yang sudah berisi data, buat backup terlebih dahulu (lihat bagian
+Backup dan restore). Sebelum menjalankan image API terbaru, jalankan dari root:
+
+```sh
+./deploy/migrate.sh database/migrations/20261101_tanggal_pendapatan.sql
+```
+
+Migrasi menambahkan kolom/index dan mengisi tanggal pendapatan transaksi lama dari
+tanggal pencatatannya dalam WIB. Aman dijalankan ulang: pilihan tanggal yang sudah
+ada tidak ditimpa. Waktu riwayat, nomor struk, dan isi laporan tersimpan tidak
+diubah. Setelah migrasi berhasil, deploy image backend **dan** frontend terbaru.
+Instalasi baru lewat Compose menjalankan migrasi ini otomatis pada volume kosong.
+Jangan menjalankan ulang seluruh `schema.sql` atau menghapus volume untuk update ini.
+
 ## Update fitur ringkasan harian
 
 Database yang sudah berjalan perlu migrasi tambahan, berurutan:
 
 ```sh
-./deploy/migrate.sh supabase/catatan_belanja.sql
-./deploy/migrate.sh supabase/ringkasan_harian.sql
-./deploy/migrate.sh supabase/ringkasan_pengeluaran.sql
+./deploy/migrate.sh database/migrations/catatan_belanja.sql
+./deploy/migrate.sh database/migrations/ringkasan_harian.sql
+./deploy/migrate.sh database/migrations/ringkasan_pengeluaran.sql
 ```
 
 Migrasi menambahkan tabel dan catatan tertaut untuk pembelian lama, tanpa mengubah transaksi aslinya. Migrasi `ringkasan_pengeluaran.sql` juga mengizinkan sisa uang minus; bila dua migrasi sebelumnya sudah dijalankan, cukup jalankan migrasi ini. Instalasi baru
-sudah mencakup seluruhnya melalui `supabase/schema.sql`. Setelah migrasi, gunakan
+sudah mencakup seluruhnya melalui `database/schema.sql`. Setelah migrasi, gunakan
 image API terbaru dan build frontend terbaru. Jangan menjalankan seluruh
 `schema.sql` ulang pada database toko yang sudah berisi data.

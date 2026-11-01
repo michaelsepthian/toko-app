@@ -166,3 +166,31 @@ test('confirmed main payment clears its cart while retaining the main tab and pa
   assert.equal(completed.drafts[0].methodID, null)
   assert.deepEqual(completed.drafts[1], state.drafts[1])
 })
+
+test('income dates remain independent per cart, survive reload, and reset after confirmed payment', () => {
+  let state = updateSaleDraft(emptySaleDrafts(), 0, { cart: [line], incomeDate: '2026-10-29' })
+  state = addSaleDraft(state)
+  state = updateSaleDraft(state, 1, { cart: [line], incomeDate: '2026-10-30' })
+  const restored = parseSaleDrafts(JSON.stringify(state))
+  assert.equal(restored.drafts[0].incomeDate, '2026-10-29')
+  assert.equal(restored.drafts[1].incomeDate, '2026-10-30')
+  const completed = completeSaleDraft(restored, restored.drafts[0].id)
+  assert.equal(completed.drafts[0].incomeDate, '')
+  assert.equal(completed.drafts[1].incomeDate, '2026-10-30')
+  assert.throws(() => parseSaleDrafts(JSON.stringify(updateSaleDraft(state, 0, { incomeDate: '2026-02-31' }))))
+  const legacy = emptySaleDrafts()
+  delete legacy.drafts[0].incomeDate
+  assert.equal(parseSaleDrafts(JSON.stringify(legacy)).drafts[0].cart.length, 0)
+})
+
+test('ambiguous checkout retry cannot silently change its income date', async () => {
+  const rows = new Map<string, string>()
+  const storage = { getItem: (key: string) => rows.get(key) ?? null, setItem: (key: string, value: string) => { rows.set(key, value) }, removeItem: (key: string) => { rows.delete(key) } }
+  const input: TransactionInput = { tanggal_pendapatan: '2026-10-30', metode_pembayaran_id: 1, diskon_transaksi: '0', jumlah_dibayar: '50000', items: [{ produk_id: 1, jumlah: '1', diskon: '0' }] }
+  await assert.rejects(sendCheckoutAttempt(storage, 'income', input, async () => { throw new APIError(500, 'timeout') }, () => {}, () => 'income-id'))
+  await sendCheckoutAttempt(storage, 'income', { ...input, tanggal_pendapatan: '2026-11-01' }, async body => {
+    assert.equal(body.tanggal_pendapatan, '2026-10-30')
+    assert.equal(body.idempotency_key, 'income-id')
+    return { id: 1 } as Transaction
+  }, () => {})
+})

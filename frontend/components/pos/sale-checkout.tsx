@@ -1,11 +1,14 @@
 'use client'
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import Decimal from 'decimal.js'
 import { Banknote, Barcode, Check, CircleAlert, CreditCard, LoaderCircle, Minus, Plus, Printer, QrCode, RotateCcw, Search, ShoppingBasket, Trash2, WalletCards, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { api, message } from '@/lib/api'
 import { exactProduct, groupedCash, isBarcodeQuery, isSearchCharacter } from '@/lib/keyboard'
+import { jakartaDay } from '@/lib/history-date'
+import { incomeDateLabel, validIncomeDate } from '@/lib/income-date'
 import { money, totals, validLines, validNumber } from '@/lib/pos'
 import type { CartLine, Data, Product, Transaction, TransactionInput, User } from '@/lib/types'
 import { useCheckout } from '@/lib/use-checkout'
@@ -17,9 +20,9 @@ import { SaleCatalog } from './sale-catalog'
 import { SearchSelect } from './search-select'
 import { parseProductOrder, productSortOptions, sortProducts, type ProductOrderSettings, type ProductPopularity, type ProductSort } from '@/lib/product-sort'
 
-type Props = { user: User; data: Data; active: boolean; onSaved: (sale: Transaction, purchase: boolean, print: boolean) => Promise<void>; onReprint: (sale: Transaction) => Promise<void>; onProductUpdated: (product: Product) => void }
+type Props = { user: User; data: Data; active: boolean; operationalDateHost: HTMLDivElement | null; onSaved: (sale: Transaction, purchase: boolean, print: boolean) => Promise<void>; onReprint: (sale: Transaction) => Promise<void>; onProductUpdated: (product: Product) => void }
 
-export function SaleCheckout({ user, data, active, onSaved, onReprint, onProductUpdated }: Props) {
+export function SaleCheckout({ user, data, active, operationalDateHost, onSaved, onReprint, onProductUpdated }: Props) {
   const drafts = useSaleDrafts(user.id)
   const { cart, methodID, paid, reference, print } = drafts.draft
   const setCart = (cart: CartLine[]) => drafts.update({ cart })
@@ -89,6 +92,8 @@ export function SaleCheckout({ user, data, active, onSaved, onReprint, onProduct
   const busy = checkout.anyBusy
   const locked = !drafts.ready || !checkout.ready || busy || Boolean(pending)
   const switchingLocked = locked || modal
+  const incomeDate = pending?.tanggal_pendapatan ?? (drafts.draft.incomeDate || jakartaDay())
+  const incomeDateValid = validIncomeDate(incomeDate) && incomeDate <= jakartaDay()
   const methods = data.payments.filter(method => method.aktif && method.untuk_penjualan)
   const method = methods.find(method => method.id === methodID) ?? methods.find(method => method.jenis === 'CASH') ?? methods[0]
   const valid = validLines(cart, discount)
@@ -192,6 +197,7 @@ export function SaleCheckout({ user, data, active, onSaved, onReprint, onProduct
   }
   function openPayment() {
     if (!valid || !method || locked) return
+    if (!incomeDateValid) { setError('Pilih tanggal pendapatan yang valid, maksimal hari ini (WIB).'); return }
     setError(''); setPaymentError(''); setChangePreview(null); setPaymentStage('confirm'); setCompleted(null); setModal(true)
   }
   function finish() { if (savingRef.current || busy || paymentStage === 'saving' || (pending && !completed)) return; setPaymentStage('confirm'); setPaymentError(''); setChangePreview(null); setModal(false); setCompleted(null); setError(''); focusSearch() }
@@ -303,8 +309,9 @@ export function SaleCheckout({ user, data, active, onSaved, onReprint, onProduct
   async function save(retry = false) {
     if (busy || savingRef.current) return
     setError('')
-    if (!retry && (!valid || !method || !sufficient)) { setError('Periksa jumlah barang dan uang yang diterima.'); return }
+    if (!retry && (!valid || !method || !sufficient || !incomeDateValid)) { setError('Periksa tanggal pendapatan, jumlah barang, dan uang yang diterima.'); return }
     const body: TransactionInput = {
+      tanggal_pendapatan: incomeDate,
       metode_pembayaran_id: method?.id ?? 0, diskon_transaksi: discount,
       jumlah_dibayar: amountPaid, nomor_referensi: reference || null,
       items: cartRef.current.map(line => ({ produk_id: line.product.id, jumlah: line.quantity, diskon: line.discount })),
@@ -336,6 +343,10 @@ export function SaleCheckout({ user, data, active, onSaved, onReprint, onProduct
 
   const itemCount = cart.reduce((sum, line) => sum.plus(line.quantity || 0), new Decimal(0)).toString()
   return <div hidden={!active}>
+    {operationalDateHost && createPortal(<label className="pos-operating-date" data-backdated={drafts.ready && incomeDate !== jakartaDay()} title="Hari operasional kasir. Penjualan masuk ringkasan pada tanggal ini.">
+      <span>Tanggal operasional <small>WIB</small></span>
+      <input id="sale-income-date" aria-label="Tanggal operasional (WIB)" type="date" max={jakartaDay()} value={drafts.ready ? incomeDate : ''} disabled={!active || switchingLocked} aria-invalid={drafts.ready && !incomeDateValid} onChange={event => drafts.update({ incomeDate: event.target.value })} />
+    </label>, operationalDateHost)}
     <SaleLayout>
       <section className="sale-panel sale-cart" aria-labelledby="cart-heading">
         <div className="sale-draft-strip"><div ref={draftTabsRef} className="sale-draft-tabs" role="tablist" aria-label="Transaksi berjalan">
@@ -403,7 +414,8 @@ export function SaleCheckout({ user, data, active, onSaved, onReprint, onProduct
         <div className="sale-payment-heading"><div><p className="sale-eyebrow">PEMBAYARAN</p><h2 id="sale-payment-title">Konfirmasi Pembayaran</h2></div><Button variant="outline" className="sale-modal-close" disabled={busy} aria-label="Tutup pembayaran" onClick={finish}><X /></Button></div>
         <ErrorBox>{error}</ErrorBox>
         <div className="sale-payment-total"><p>Total Belanja</p><strong>{money(preview.total)}</strong></div>
-        {pending ? <p className="sale-pending">Hasil penyimpanan belum terkonfirmasi. Tekan tombol di bawah untuk memeriksa request yang sama.</p> : method?.jenis === 'CASH' ? <label className="sale-cash-label" htmlFor="sale-cash">Uang diterima<div className="sale-cash-input"><span>Rp</span><input data-autofocus id="sale-cash" inputMode="numeric" autoComplete="off" disabled={busy} placeholder="0" value={groupedCash(paid)} onChange={event => setPaid(event.target.value.replace(/\D/g, '').slice(0, 16))} /></div></label> : <div className="sale-noncash"><p>Metode: <strong>{method?.nama}</strong></p><p>Pastikan pembayaran {money(preview.total)} sudah berhasil pada QRIS/terminal.</p></div>}
+        <p className="mb-3 text-sm text-muted-foreground">Tanggal pendapatan: <strong>{incomeDateLabel(incomeDate)}</strong>. Riwayat mencatat waktu pembayaran sebenarnya.</p>
+        {pending ? <p className="sale-pending">Hasil penyimpanan belum terkonfirmasi. Tekan tombol di bawah untuk memeriksa request yang sama.</p> : method?.jenis === 'CASH' ? <label className="sale-cash-label" htmlFor="sale-cash">Uang diterima<div className="sale-cash-input"><span>Rp</span><input data-autofocus id="sale-cash" inputMode="numeric" autoComplete="off" disabled={busy} placeholder="Masukkan uang diterima" value={groupedCash(paid)} onFocus={event => event.currentTarget.select()} onChange={event => setPaid(event.target.value.replace(/\D/g, '').replace(/^0+(?=\d)/, '').slice(0, 16))} /></div></label> : <div className="sale-noncash"><p>Metode: <strong>{method?.nama}</strong></p><p>Pastikan pembayaran {money(preview.total)} sudah berhasil pada QRIS/terminal.</p></div>}
         {method?.jenis !== 'CASH' && !pending && <div className="sale-reference"><Field label="Referensi pembayaran (opsional)" value={reference} onChange={setReference} disabled={busy} /></div>}
         <label className="sale-print"><input type="checkbox" checked={print} disabled={busy} onChange={event => setPrint(event.target.checked)} /><Printer />Print struk setelah pembayaran</label>
         <Button type="submit" data-autofocus={method?.jenis !== 'CASH' || Boolean(pending) ? true : undefined} className="sale-complete" disabled={busy || (!pending && (!valid || !sufficient))}><WalletCards />{busy ? 'Menyimpan…' : pending ? 'Periksa / lanjutkan transaksi' : 'Selesaikan Pembayaran'}</Button>

@@ -148,7 +148,16 @@
 .pos-brand p { font-size: 14px; color: var(--muted-foreground); margin-top: 3px; }
 .pos-brand time { display: block; margin-top: 3px; font-size: 14px; font-weight: 600; }
 .pos-header-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
-.pos-header-actions > button, .pos-more > summary { height: 48px; padding: 0 14px; font-size: 16px; border-radius: 12px; }
+.pos-header-actions > button, .pos-operating-session > button, .pos-more > summary { height: 48px; padding: 0 14px; font-size: 16px; border-radius: 12px; }
+.pos-operating-session { display: flex; align-items: center; gap: 9px; }
+.pos-operating-date { display: flex; flex-direction: column; justify-content: center; gap: 1px; height: 48px; min-width: 166px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--background); }
+.pos-operating-date > span { display: flex; justify-content: space-between; gap: 8px; color: var(--muted-foreground); font-size: 10px; font-weight: 600; }
+.pos-operating-date small { font-size: 9px; font-weight: 500; }
+.pos-operating-date input { width: 100%; min-width: 0; border: 0; outline: none; background: transparent; color: var(--foreground); font: inherit; font-size: 14px; font-weight: 650; line-height: 1.4; }
+.pos-operating-date:focus-within { outline: 2px solid var(--ring); outline-offset: 2px; }
+.pos-operating-date[data-backdated="true"] { border-color: var(--primary); background: var(--accent); }
+.pos-operating-date:has(input:disabled) { opacity: .65; }
+.dark .pos-operating-date input { color-scheme: dark; }
 .pos-primary-nav { display: flex; align-items: center; background: var(--muted); padding: 5px; border-radius: 20px; gap: 3px; }
 .pos-primary-nav button { height: 50px; font-size: 16px; padding: 0 17px; border-radius: 13px; }
 .pos-more { position: relative; }
@@ -279,7 +288,10 @@
   .pos-brand h1 { font-size: 21px; }
   .pos-brand-icon { width: 48px; height: 48px; border-radius: 16px; }
   .pos-header-actions { width: 100%; }
-  .pos-header-actions > button,.pos-more > summary { height: 41px; padding: 0 10px; font-size: 13px; }
+  .pos-header-actions > button,.pos-operating-session > button,.pos-more > summary { height: 41px; padding: 0 10px; font-size: 13px; }
+  .pos-operating-date { height: 41px; min-width: 146px; padding: 2px 8px; }
+  .pos-operating-date input { font-size: 13px; }
+  .pos-operating-session kbd { display: none; }
   .pos-primary-nav { order: 5; width: 100%; }
   .pos-primary-nav button { flex: 1; font-size: 14px; padding: 0 10px; height: 44px; }
   .sale-layout { padding: 12px; gap: 12px; }

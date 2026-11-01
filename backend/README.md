@@ -34,13 +34,16 @@ laptop/CI lalu di-pull oleh VPS. Login baru tidak membutuhkan Supabase.
 ## Menjalankan aplikasi tanpa Docker untuk backend
 
 1. Install Go **1.26 atau lebih baru** dari https://go.dev/dl/.
-2. Jalankan `../supabase/schema.sql` melalui psql untuk PostgreSQL mandiri baru,
+2. Jalankan `../database/schema.sql` melalui psql untuk PostgreSQL mandiri baru,
    atau SQL Editor untuk Supabase baru. Docker Compose sudah menjalankannya otomatis.
+   Setelah schema, jalankan juga `migrations/20261101_tanggal_pendapatan.sql`.
+   Instalasi Docker baru menjalankan migrasi ini otomatis; volume lama harus dimigrasi
+   setelah backup sebelum menjalankan backend versi baru.
    Jika database sudah memakai SQL sebelumnya, jangan jalankan schema lagi. Jalankan
-   `../supabase/ubah_format_nomor.sql` jika format nomor belum diperbarui.
+   `../database/migrations/ubah_format_nomor.sql` jika format nomor belum diperbarui.
 3. Jika database sudah memakai schema lama, jalankan
-   `../supabase/auth_username_password.sql` untuk menambahkan hash password dan sesi.
-   Database baru cukup memakai `schema.sql` terbaru.
+   `../database/migrations/auth_username_password.sql` untuk menambahkan hash password dan sesi.
+   Database baru memakai `schema.sql` dan migrasi tanggal pendapatan pada langkah 2.
    Pada halaman awal frontend, isi username dan password lalu klik **Daftar & Masuk**.
    Pengguna pertama otomatis menjadi pemilik. Nama diisi otomatis dari username;
    tidak ada email, konfirmasi, atau kode setup.
@@ -97,7 +100,7 @@ docs/API.md                      # endpoint dan contoh request
 compose.test.yaml               # PostgreSQL lokal khusus test
 ```
 
-SQL asli di `../supabase/` tetap menjadi sumber skema. Backend **tidak memakai
+SQL struktur di `../database/` tetap menjadi sumber skema. Backend **tidak memakai
 AutoMigrate** dan tidak membuat skema saat server mulai. Tidak ada salinan DDL kedua
 agar model aplikasi dan SQL mudah dibandingkan.
 
@@ -149,7 +152,7 @@ pembatalan, dua kasir memperebutkan stok terakhir, auth HTTP, dan izin pemilik/k
 
 Frontend tersedia pada `../frontend`; lihat README di sana untuk environment,
 login, menu pembelian, scanner, printer, dan laci. Database yang sudah memakai
-schema lama perlu menjalankan `../supabase/integrasi_kasir.sql` sekali sebelum
+schema lama perlu menjalankan `../database/migrations/integrasi_kasir.sql` sekali sebelum
 menjalankan backend versi ini. Database baru cukup memakai `schema.sql` terbaru.
 
 Referensi: [struktur modul Go](https://go.dev/doc/modules/layout),

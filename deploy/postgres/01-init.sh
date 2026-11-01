@@ -9,4 +9,5 @@ ALTER DATABASE :"DBNAME" OWNER TO toko_app;
 GRANT USAGE, CREATE ON SCHEMA public TO toko_app;
 SET ROLE toko_app;
 \i /schema/schema.sql
+\i /schema/tanggal_pendapatan.sql
 SQL

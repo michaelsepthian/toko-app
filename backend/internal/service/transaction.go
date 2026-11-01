@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
@@ -26,6 +27,7 @@ type ItemInput struct {
 	HargaBeli *decimal.Decimal `json:"harga_beli,omitempty"`
 }
 type TransactionInput struct {
+	TanggalPendapatan  *string         `json:"tanggal_pendapatan,omitempty"`
 	CatatanBelanjaID   *int64          `json:"catatan_belanja_id,omitempty"`
 	IdempotencyKey     *string         `json:"idempotency_key,omitempty"`
 	MetodePembayaranID int64           `json:"metode_pembayaran_id"`
@@ -39,6 +41,14 @@ type TransactionInput struct {
 }
 
 func (in TransactionInput) validate(purchase bool) ([]int64, error) {
+	if in.TanggalPendapatan != nil {
+		if purchase {
+			return nil, apperror.Invalid("Tanggal pendapatan hanya untuk penjualan")
+		}
+		if _, err := saleIncomeDate(*in.TanggalPendapatan, time.Now()); err != nil {
+			return nil, err
+		}
+	}
 	if in.CatatanBelanjaID != nil && (!purchase || *in.CatatanBelanjaID <= 0) {
 		return nil, apperror.Invalid("Catatan belanja hanya untuk rincian pembelian")
 	}
@@ -203,6 +213,9 @@ func (s *Service) CreateTransaction(ctx context.Context, userID int64, purchase 
 			output = record
 		} else {
 			record := model.Penjualan{Header: header, JumlahDibayar: in.JumlahDibayar}
+			if in.TanggalPendapatan != nil {
+				record.TanggalPendapatan = model.ReportDate(*in.TanggalPendapatan)
+			}
 			if err := tx.Omit("Detail").Create(&record).Error; err != nil {
 				return err
 			}

@@ -113,11 +113,12 @@ type Header struct {
 }
 type Penjualan struct {
 	Header
-	PenanggungBiaya string            `json:"penanggung_biaya"`
-	TotalTagihan    decimal.Decimal   `json:"total_tagihan"`
-	JumlahDibayar   decimal.Decimal   `json:"jumlah_dibayar"`
-	Kembalian       decimal.Decimal   `json:"kembalian"`
-	Detail          []DetailPenjualan `json:"detail" gorm:"foreignKey:PenjualanID"`
+	TanggalPendapatan ReportDate        `json:"tanggal_pendapatan" gorm:"type:date;default:(-)"`
+	PenanggungBiaya   string            `json:"penanggung_biaya"`
+	TotalTagihan      decimal.Decimal   `json:"total_tagihan"`
+	JumlahDibayar     decimal.Decimal   `json:"jumlah_dibayar"`
+	Kembalian         decimal.Decimal   `json:"kembalian"`
+	Detail            []DetailPenjualan `json:"detail" gorm:"foreignKey:PenjualanID"`
 }
 
 func (Penjualan) TableName() string { return "penjualan" }

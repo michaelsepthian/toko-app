@@ -46,7 +46,7 @@ ambil endpoint `/{id}` untuk detail barang dan nilai final struk.
 Kedua flag metode pembayaran boleh `false` untuk menyembunyikannya dari kedua
 menu tanpa menghapus riwayat. Transaksi tetap menolak metode tanpa flag yang
 sesuai atau yang `aktif=false`. Database lama perlu menjalankan
-`supabase/metode_pembayaran_visibilitas.sql` sebelum memakai backend terbaru.
+`database/migrations/metode_pembayaran_visibilitas.sql` sebelum memakai backend terbaru.
 
 ## Menyiapkan produk
 
@@ -187,7 +187,7 @@ key yang sama untuk body atau pengguna berbeda menghasilkan 409.
 
 ## Migrasi integrasi kasir
 
-Database yang memakai schema lama perlu menjalankan `../supabase/integrasi_kasir.sql`
+Database yang memakai schema lama perlu menjalankan `../database/migrations/integrasi_kasir.sql`
 sekali. Untuk database baru cukup `schema.sql` terbaru. Kolom `jenis` metode
 pembayaran menerima CASH/QRIS/DEBIT/TRANSFER/LAINNYA; pemilihan cash tidak lagi
 didasarkan pada nama metode. Snapshot nama untuk detail lama diisi dari nama
@@ -210,6 +210,19 @@ Endpoint daftar lama tetap tersedia untuk kompatibilitas; riwayat transaksi teta
 
 
 ## Filter tanggal riwayat
+
+`POST /api/v1/penjualan` menerima `tanggal_pendapatan` opsional (`YYYY-MM-DD`, hari
+ini dalam WIB atau sebelumnya). Nilai yang tidak valid atau tanggal mendatang
+menghasilkan 400. Pembelian menolak field ini. Tanpa field, database memakai hari
+dari waktu pencatatan penjualan dalam WIB. Field opsional dihilangkan dari hash
+request lama sehingga retry sebelum fitur ini tetap kompatibel.
+
+Respons penjualan menyertakan `tanggal_pendapatan` secara terpisah dari `tanggal`.
+Ringkasan harian dan pembatalan memakai tanggal pendapatan; `tanggal`, nomor struk,
+mutasi stok, dan filter riwayat tetap mengikuti waktu transaksi sebenarnya.
+Contoh: dicatat 1 November dengan `tanggal_pendapatan=2026-10-31` masuk pendapatan
+31 Oktober, tetapi tetap tampil dalam riwayat 1 November. Pembatalan mengeluarkannya
+dari pendapatan 31 Oktober tepat satu kali, tanpa mengubah laporan snapshot lama.
 
 `GET /api/v1/penjualan?tanggal=2026-10-29&limit=20&offset=0` menampilkan transaksi pada satu tanggal berdasarkan WIB (Asia/Jakarta). Tanpa `tanggal`, riwayat penjualan otomatis memakai hari ini. Tanggal wajib valid dalam format `YYYY-MM-DD`; nilai tidak valid menghasilkan 400. Filter diterapkan sebelum pagination dengan rentang `tanggal >= awal_hari AND tanggal < awal_hari_berikutnya`, sehingga transaksi tepat tengah malam hari berikutnya tidak ikut.
 
@@ -248,7 +261,7 @@ Pengguna lain menerima perubahan melalui pemeriksaan versi master (maksimal
 sekitar 30 detik selama halaman aktif). Flag juga tersedia pada create/update
 produk biasa. Frekuensi transaksi tetap berasal dari database toko.
 
-Untuk database yang sudah ada, jalankan `supabase/produk_favorit.sql` sebelum
-menjalankan backend baru. Instalasi baru memakai `supabase/schema.sql` yang
+Untuk database yang sudah ada, jalankan `database/migrations/produk_favorit.sql` sebelum
+menjalankan backend baru. Instalasi baru memakai `database/schema.sql` yang
 sudah menyertakan kolom ini. Favorit lama di browser tidak otomatis dipindahkan;
 pemilik perlu menandainya kembali sekali.

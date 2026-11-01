@@ -55,13 +55,14 @@ func TestUsernamePasswordRegistration(t *testing.T) {
 		_ = adminPool.Close()
 	})
 	_, file, _, _ := runtime.Caller(0)
-	schema, err := os.ReadFile(filepath.Join(filepath.Dir(file), "../../../supabase/schema.sql"))
+	schema, err := os.ReadFile(filepath.Join(filepath.Dir(file), "../../../database/schema.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Exec(string(schema)).Error; err != nil {
 		t.Fatal(err)
 	}
+	applyIncomeDateMigration(t, db)
 	handler := httpapi.New(config.Config{}, &repository.Store{DB: db})
 	request := func(method, path, token, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))

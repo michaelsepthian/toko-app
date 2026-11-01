@@ -124,7 +124,7 @@ func dailySnapshot(db *gorm.DB, start, end time.Time) (DailySnapshot, error) {
  coalesce(sum(p.biaya_pembayaran) FILTER(WHERE p.status='SELESAI' AND p.penanggung_biaya='TOKO'),0) AS biaya_toko,
  max(p.updated_at) AS terbaru,0::numeric AS belum_dirinci
  FROM public.penjualan p JOIN public.metode_pembayaran m ON m.id=p.metode_pembayaran_id
- WHERE p.tanggal>=? AND p.tanggal<? AND p.status IN ('SELESAI','BATAL')
+ WHERE p.tanggal_pendapatan=? AND p.status IN ('SELESAI','BATAL')
  GROUP BY m.id,m.nama,m.jenis
  UNION ALL
  SELECT 'PEMBELIAN',0,'Semua pembelian','LAINNYA',count(*),0,coalesce(sum(total),0),0,0,max(updated_at),
@@ -138,7 +138,7 @@ func dailySnapshot(db *gorm.DB, start, end time.Time) (DailySnapshot, error) {
  'items',(SELECT coalesce(jsonb_agg(jsonb_build_object('nama',d.nama_produk,'jumlah',d.jumlah::text,'subtotal',d.subtotal::text) ORDER BY d.id),'[]'::jsonb)
  FROM public.detail_pembelian d WHERE d.pembelian_id=b.pembelian_id)
  ) ORDER BY b.pembelian_id NULLS LAST,b.catatan_id),'[]'::jsonb) FROM belanja b) AS rincian_pembelian
- FROM harian ORDER BY sumber,metode_pembayaran_id`, start, end, start.Format("2006-01-02"), start.AddDate(0, 0, -1).Format("2006-01-02"), start, end).Scan(&rows).Error
+ FROM harian ORDER BY sumber,metode_pembayaran_id`, start, end, start.Format("2006-01-02"), start.AddDate(0, 0, -1).Format("2006-01-02"), start.Format("2006-01-02")).Scan(&rows).Error
 	result := DailySnapshot{Versi: 2, Tanggal: start.Format("2006-01-02"), Metode: []DailyPayment{}, Pembelian: []DailyPurchase{}}
 	if err != nil {
 		return result, err

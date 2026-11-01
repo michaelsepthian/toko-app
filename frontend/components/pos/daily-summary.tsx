@@ -12,7 +12,7 @@ import { CashPurchaseNotes } from './cash-purchase-notes'
 import { ErrorBox, Field, inputClass, Panel, RupiahField } from './common'
 
 type Form = Pick<DailySummaryInput, 'kas_aktual' | 'belanja_besok' | 'email_tujuan' | 'catatan'>
-const emptyForm = (): Form => ({ kas_aktual: '', belanja_besok: '0', email_tujuan: '', catatan: '' })
+const emptyForm = (): Form => ({ kas_aktual: '', belanja_besok: '', email_tujuan: '', catatan: '' })
 export function DailySummary({ storeName, userID }: { storeName: string; userID: number }) {
   const [date, setDate] = useState(jakartaDay)
   const [live, setLive] = useState<DailySnapshot | null>(null)
@@ -34,11 +34,16 @@ export function DailySummary({ storeName, userID }: { storeName: string; userID:
   const snapshot = selected?.snapshot ?? live
   const controlsLocked = saving || Boolean(pending)
   const readOnly = controlsLocked || Boolean(selected)
-  const valid = ['kas_aktual', 'belanja_besok'].every(key => validNumber(form[key as keyof Form], 2, true))
+  const valid = validNumber(form.kas_aktual, 2, true) && validNumber(form.belanja_besok || '0', 2, true)
   const legacy = Boolean(selected && (selected.snapshot.versi ?? 1) < 2)
   const calculated = snapshot ? reconcileDailyCash(snapshot, form.kas_aktual, form.belanja_besok) : null
   const cash = selected ? { totalExpected: new Decimal(selected.total_dana_seharusnya), totalActual: new Decimal(selected.total_dana_aktual), difference: new Decimal(selected.selisih_kas), remaining: new Decimal(selected.sisa_kas), expectedRemaining: new Decimal(selected.total_dana_seharusnya).minus(selected.belanja_besok) } : calculated
   const overBudget = Boolean(cash?.remaining.isNegative())
+  const reportChanged = Boolean(selected && live && selected.snapshot.hash_sumber !== live.hash_sumber)
+  // total_selesai sudah mengecualikan BATAL; jangan mengurangi total_batal dua kali.
+  const income = snapshot ? new Decimal(snapshot.total_selesai) : new Decimal(0)
+  const canceled = snapshot ? new Decimal(snapshot.total_batal) : new Decimal(0)
+  const beforeCancellation = income.plus(canceled)
 
   useEffect(() => {
     try {
@@ -63,6 +68,17 @@ export function DailySummary({ storeName, userID }: { storeName: string; userID:
     return () => { active = false }
   }, [date, revision, offset])
   useEffect(() => {
+    function refreshWhenVisible() {
+      if (!document.hidden && !controlsLocked) setRevision(value => value + 1)
+    }
+    window.addEventListener('focus', refreshWhenVisible)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+    return () => {
+      window.removeEventListener('focus', refreshWhenVisible)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+    }
+  }, [controlsLocked])
+  useEffect(() => {
     if (!email || !dialog.current) return
     const current = dialog.current
     current.showModal()
@@ -82,7 +98,7 @@ export function DailySummary({ storeName, userID }: { storeName: string; userID:
     if (saveLock.current || (!pending && (!live || !valid || loading))) return
     saveLock.current = true; setSaving(true); setError(''); setNotice('')
     try {
-      const body = pending ?? { ...form, versi_perhitungan: 2, nama_toko: storeName, tanggal: date, hash_sumber: live!.hash_sumber, idempotency_key: crypto.randomUUID() }
+      const body = pending ?? { ...form, belanja_besok: form.belanja_besok || '0', versi_perhitungan: 2, nama_toko: storeName, tanggal: date, hash_sumber: live!.hash_sumber, idempotency_key: crypto.randomUUID() }
       const record = await saveDailySummaryAttempt(sessionStorage, pendingKey, body, payload => api<DailySummaryRecord>('/ringkasan-harian', 'POST', payload), setPending)
       setSelected(record); setRows(previous => [record, ...previous.filter(row => row.id !== record.id)].slice(0, 10))
       setForm({ kas_aktual: record.kas_aktual, belanja_besok: record.belanja_besok, email_tujuan: record.email_tujuan ?? '', catatan: record.catatan }); setOffset(0)
@@ -108,20 +124,21 @@ export function DailySummary({ storeName, userID }: { storeName: string; userID:
     <div className="flex flex-wrap items-end gap-3 rounded-2xl border bg-card p-4">
       <Field label="Tanggal laporan (WIB)" type="date" value={date} disabled={controlsLocked} onChange={changeDate} />
       <Button variant="outline" disabled={controlsLocked} onClick={() => changeDate(jakartaDay())}>Hari ini</Button>
-      <Button variant="outline" disabled={loading || controlsLocked} onClick={() => setRevision(value => value + 1)}><RefreshCw className={loading ? 'animate-spin' : ''} />Muat ulang</Button>
-      <p className="text-sm text-muted-foreground">{selected ? `Laporan tersimpan #${selected.id}` : 'Ringkasan penjualan dan pemeriksaan kas harian'}</p>
+      <Button variant="outline" disabled={loading || controlsLocked} onClick={() => { setSelected(null); setRevision(value => value + 1); setNotice('Menampilkan data terbaru, termasuk pembatalan. Laporan tersimpan tidak diubah.') }}><RefreshCw className={loading ? 'animate-spin' : ''} />Muat ulang</Button>
+      <p className="text-sm text-muted-foreground">{selected ? `Laporan tersimpan #${selected.id} · Angka saat laporan dibuat` : 'Data terbaru berdasarkan tanggal pendapatan (WIB)'}</p>
     </div>
     <ErrorBox>{error}</ErrorBox>
     {notice && <p role="status" className="rounded-xl border border-primary/30 bg-primary/5 p-3 text-sm">{notice}</p>}
+    {reportChanged && <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"><p>Transaksi telah berubah sejak laporan ini disimpan. Pendapatan terbaru dapat berbeda, termasuk karena pembatalan atau penjualan tambahan.</p><Button variant="outline" className="mt-2" disabled={controlsLocked} onClick={() => { setSelected(null); setRevision(value => value + 1); setNotice('Data terbaru ditampilkan. Simpan sebagai versi baru bila diperlukan.') }}>Lihat pendapatan terbaru</Button></div>}
     {loading && <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" />Memuat ringkasan…</p>}
     {snapshot && <>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {[['Penjualan berhasil', snapshot.total_selesai, `${snapshot.jumlah_selesai} transaksi`], ['Dibatalkan', snapshot.total_batal, `${snapshot.jumlah_batal} transaksi · di luar total berhasil`], ['Total tunai', snapshot.total_cash, 'Penjualan berhasil dengan CASH'], ['Total non-tunai', snapshot.total_non_cash, 'QRIS, debit, transfer, dan lainnya']].map(([label, amount, note]) => <div key={label} className="rounded-2xl border bg-card p-4"><p className="text-sm text-muted-foreground">{label}</p><strong className={`mt-2 block break-words text-2xl font-bold tabular-nums ${label === 'Dibatalkan' ? 'text-destructive' : ''}`}>{money(amount)}</strong><p className="mt-1 text-xs text-muted-foreground">{note}</p></div>)}
+        {[['Pendapatan setelah pembatalan', income.toString(), `${snapshot.jumlah_selesai} transaksi berhasil · sudah dikurangi pembatalan`], ['Dibatalkan', snapshot.total_batal, `${snapshot.jumlah_batal} transaksi · tidak dihitung sebagai pendapatan`], ['Total tunai', snapshot.total_cash, 'Pendapatan CASH setelah pembatalan'], ['Total non-tunai', snapshot.total_non_cash, 'Pendapatan non-tunai setelah pembatalan']].map(([label, amount, note]) => <div key={label} className="rounded-2xl border bg-card p-4"><p className="text-sm text-muted-foreground">{label}</p><strong className={`mt-2 block break-words text-2xl font-bold tabular-nums ${label === 'Dibatalkan' ? 'text-destructive' : ''}`}>{money(amount)}</strong><p className="mt-1 text-xs text-muted-foreground">{note}</p></div>)}
       </div>
       <Panel title="Rincian metode pembayaran" subtitle={`Data sampai ${dateTime(snapshot.dihitung_pada)} WIB${selected ? ' · Snapshot tersimpan' : ''}`}>
         <div className="overflow-x-auto"><table className="w-full min-w-[620px] text-sm"><thead className="border-b text-left text-muted-foreground"><tr><th className="pb-3">Metode</th><th className="pb-3 text-right">Berhasil</th><th className="pb-3 text-right">Total berhasil</th><th className="pb-3 text-right">Batal</th><th className="pb-3 text-right">Total batal</th></tr></thead><tbody>{snapshot.metode.map(row => <tr key={row.metode_pembayaran_id} className="border-b"><td className="py-3 font-semibold">{row.nama}<small className="block font-normal text-muted-foreground">{row.jenis}</small></td><td className="text-right">{row.jumlah_selesai}</td><td className="text-right tabular-nums">{money(row.total_selesai)}</td><td className="text-right">{row.jumlah_batal}</td><td className="text-right tabular-nums">{money(row.total_batal)}</td></tr>)}{!snapshot.metode.length && <tr><td colSpan={5} className="py-6 text-muted-foreground">Tidak ada penjualan pada tanggal ini.</td></tr>}</tbody><tfoot><tr className="font-bold"><td className="pt-4">Total semua metode</td><td className="pt-4 text-right">{snapshot.jumlah_selesai}</td><td className="pt-4 text-right tabular-nums">{money(snapshot.total_selesai)}</td><td className="pt-4 text-right">{snapshot.jumlah_batal}</td><td className="pt-4 text-right tabular-nums">{money(snapshot.total_batal)}</td></tr></tfoot></table></div>
 
-        <p className="mt-3 text-xs text-muted-foreground">Pembatalan mengikuti tanggal penjualan, bukan tanggal refund. Jenis pembayaran mengikuti master saat laporan dibuat. Laporan tersimpan mempertahankan nama dan jenis tersebut.</p>
+        <p className="mt-3 text-xs text-muted-foreground">Penjualan dan pembatalan dikelompokkan menurut tanggal pendapatan, bukan waktu pencatatan atau tanggal refund. Total berhasil sudah dikurangi pembatalan. Laporan tersimpan mempertahankan angka saat dibuat.</p>
       </Panel>
       {!legacy && <Panel title="Belanja toko hari ini" subtitle="Pembelian yang dicatat langsung dan pengeluaran yang belum dirinci masuk otomatis.">
         <div className="grid gap-3 rounded-xl bg-muted p-3 text-sm sm:grid-cols-3"><p>Alokasi dari kemarin<strong className="block text-lg">{money(snapshot.alokasi_sebelumnya || '0')}</strong></p><p>Total belanja<strong className="block text-lg">{money(snapshot.total_pembelian || '0')}</strong></p><p>Sisa / kekurangan anggaran<strong className={`block text-lg ${new Decimal(snapshot.selisih_belanja || 0).isNegative() ? 'text-destructive' : 'text-primary'}`}>{money(snapshot.selisih_belanja || '0')}</strong></p></div>
@@ -132,7 +149,9 @@ export function DailySummary({ storeName, userID }: { storeName: string; userID:
         <Panel title="Ringkasan dana harian" subtitle="Penjualan dan pembelian dari seluruh metode pembayaran dihitung bersama.">
           {legacy && <p className="mb-3 rounded-xl bg-muted p-3 text-sm">Laporan ini memakai format lama. Angka tersimpan tetap dipertahankan.</p>}
           <div className="space-y-2 rounded-xl bg-muted p-3 text-sm">
-            <p className="flex justify-between gap-3"><span>Penjualan semua metode</span><strong>{money(snapshot.total_selesai)}</strong></p>
+            <p className="flex justify-between gap-3"><span>Penjualan sebelum pembatalan</span><strong>{money(beforeCancellation)}</strong></p>
+            <p className="flex justify-between gap-3 text-destructive"><span>− Transaksi dibatalkan</span><strong>{money(canceled)}</strong></p>
+            <p className="flex justify-between gap-3 border-t pt-2"><span>Pendapatan setelah pembatalan</span><strong>{money(income)}</strong></p>
             {!legacy && <p className="flex justify-between gap-3"><span>+ Alokasi belanja dari kemarin</span><strong>{money(snapshot.alokasi_sebelumnya || '0')}</strong></p>}
             <p className="flex justify-between gap-3"><span>− Total belanja hari ini</span><strong>{money(snapshot.total_pembelian ?? snapshot.pembelian_cash)}</strong></p>
             {!legacy && !snapshot.alokasi_sebelumnya_id && <p className="text-xs text-muted-foreground">Belum ada laporan untuk hari sebelumnya; alokasi memakai Rp 0.</p>}
@@ -140,11 +159,11 @@ export function DailySummary({ storeName, userID }: { storeName: string; userID:
           <fieldset disabled={readOnly || loading} className="mt-4"><RupiahField label={legacy ? 'Uang fisik yang dihitung (format lama)' : 'Total uang aktual yang dihitung pemilik'} value={form.kas_aktual} onChange={kas_aktual => setForm({ ...form, kas_aktual })} required /></fieldset>
           {!legacy && <p className="mt-2 text-xs text-muted-foreground">Masukkan gabungan uang tunai dan dana non-tunai yang tersedia, termasuk sisa alokasi belanja kemarin.</p>}
           {cash && <dl className="mt-4 space-y-3 border-t pt-4 text-sm"><div className="flex justify-between gap-3 text-base"><dt>Total dana seharusnya</dt><dd className="font-bold tabular-nums">{money(cash.totalExpected)}</dd></div><div className="flex justify-between gap-3"><dt>Total uang aktual</dt><dd className="font-bold tabular-nums">{form.kas_aktual === '' ? '—' : money(cash.totalActual)}</dd></div><div className="flex justify-between gap-3"><dt>Selisih aktual − seharusnya</dt><dd className={`font-bold tabular-nums ${cash.difference.isZero() ? 'text-primary' : 'text-destructive'}`}>{form.kas_aktual === '' ? '—' : money(cash.difference)}</dd></div></dl>}
-          <p className="mt-3 text-xs text-muted-foreground">Dana seharusnya = penjualan + alokasi kemarin − belanja hari ini. Pengeluaran yang dilengkapi rinciannya dihitung satu kali.</p>
+          <p className="mt-3 text-xs text-muted-foreground">Dana seharusnya = pendapatan setelah pembatalan + alokasi kemarin − belanja hari ini. Transaksi batal tidak dihitung dua kali dan pengeluaran yang dilengkapi rinciannya dihitung satu kali.</p>
         </Panel>
         <Panel title="Alokasi belanja besok" subtitle="Disisihkan dari total dana hari ini. Sisa uang boleh minus.">
           <fieldset disabled={readOnly || loading} className="space-y-4">
-            <RupiahField label="Uang belanja toko untuk besok" value={form.belanja_besok} onChange={belanja_besok => setForm({ ...form, belanja_besok })} required />
+            <RupiahField label="Uang belanja toko untuk besok (opsional)" value={form.belanja_besok} onChange={belanja_besok => setForm({ ...form, belanja_besok })} />
             <Field label="Email tujuan (opsional, untuk persiapan pengiriman)" type="email" value={form.email_tujuan} onChange={email_tujuan => setForm({ ...form, email_tujuan })} />
             <label className="flex flex-col gap-1.5 text-sm font-semibold">Catatan<textarea className={`${inputClass} h-24 py-3 font-normal`} maxLength={5000} value={form.catatan} onChange={event => setForm({ ...form, catatan: event.target.value })} placeholder="Selisih kas, kebutuhan belanja besok, atau informasi lain…" /></label>
           </fieldset>

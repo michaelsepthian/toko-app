@@ -4,4 +4,7 @@
 !**/.env.example
 backups/
 .DS_Store
-supabase/
+
+# Data impor pribadi dan hasil dump database
+/database/private/
+*.dump

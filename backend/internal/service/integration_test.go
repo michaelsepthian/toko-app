@@ -73,7 +73,7 @@ func TestPostgresIntegration(t *testing.T) {
 	}
 	if !exists {
 		_, file, _, _ := runtime.Caller(0)
-		schema, err := os.ReadFile(filepath.Join(filepath.Dir(file), "../../../supabase/schema.sql"))
+		schema, err := os.ReadFile(filepath.Join(filepath.Dir(file), "../../../database/schema.sql"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -81,6 +81,7 @@ func TestPostgresIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	applyIncomeDateMigration(t, db)
 	store := &repository.Store{DB: db}
 	svc := &service.Service{Store: store}
 	suffix := fmt.Sprint(time.Now().UnixNano())

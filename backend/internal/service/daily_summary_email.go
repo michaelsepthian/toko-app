@@ -84,7 +84,7 @@ func BuildDailySummaryEmail(record model.RingkasanHarian) (DailyEmail, error) {
 	} else {
 		fmt.Fprintf(&text, "Uang fisik (format lama): %s\nPembelian tunai (format lama): %s\n", summaryMoney(record.KasAktual), summaryMoney(snapshot.PembelianCash))
 	}
-	fmt.Fprintf(&text, "\nDANA HARIAN\nTotal dana seharusnya: %s\nTotal uang aktual: %s\nSelisih: %s\n\nBELANJA BESOK\nAlokasi: %s\nUang diterima sesungguhnya setelah alokasi: %s\n\nCatatan: %s\n\nDicatat oleh %s pada %s WIB. Laporan #%d.\nData dihitung sampai %s WIB. Pembatalan menurut tanggal transaksi; alokasi besok belum menjadi pembelian hari ini.\n", summaryMoney(record.TotalDanaSeharusnya), summaryMoney(record.TotalDanaAktual), summaryMoney(record.SelisihKas), summaryMoney(record.BelanjaBesok), summaryMoney(record.SisaKas), record.Catatan, record.NamaPencatat, view.Disimpan, record.ID, view.Dihitung)
+	fmt.Fprintf(&text, "\nDANA HARIAN\nTotal dana seharusnya: %s\nTotal uang aktual: %s\nSelisih: %s\n\nBELANJA BESOK\nAlokasi: %s\nUang diterima sesungguhnya setelah alokasi: %s\n\nCatatan: %s\n\nDicatat oleh %s pada %s WIB. Laporan #%d.\nData dihitung sampai %s WIB. Pembatalan menurut tanggal pendapatan; alokasi besok belum menjadi pembelian hari ini.\n", summaryMoney(record.TotalDanaSeharusnya), summaryMoney(record.TotalDanaAktual), summaryMoney(record.SelisihKas), summaryMoney(record.BelanjaBesok), summaryMoney(record.SisaKas), record.Catatan, record.NamaPencatat, view.Disimpan, record.ID, view.Dihitung)
 	name := strings.NewReplacer("\r", " ", "\n", " ").Replace(record.NamaToko)
 	return DailyEmail{Subject: fmt.Sprintf("Ringkasan Penjualan | %s | %s", name, view.Tanggal), HTML: html.String(), Text: text.String(), To: record.EmailTujuan}, nil
 }

@@ -27,6 +27,7 @@ function Workspace({ user }: { user: User }) {
   const headerRef = useRef<HTMLDivElement>(null)
   const drawerBusy = useRef(false)
   const moreRef = useRef<HTMLDetailsElement>(null)
+  const [operationalDateHost, setOperationalDateHost] = useState<HTMLDivElement | null>(null)
   useEffect(() => {
     setDevices(readDevices())
     const value = localStorage.getItem('toko:theme') !== 'light'
@@ -120,7 +121,10 @@ function Workspace({ user }: { user: User }) {
       <header className="pos-topbar"><div className="pos-topbar-inner">
         <div className="pos-brand"><div className="pos-brand-icon">{loading ? <RefreshCw className="animate-spin" aria-label="Memuat data" /> : <Store />}</div><div><h1>{devices.storeName}</h1><p>{devices.address}</p><StoreClock /></div></div>
         <nav className="pos-header-actions" aria-label="Menu utama">
-          <Button variant="outline" onClick={() => void drawer()}><Banknote />Buka Laci <kbd>F10</kbd></Button>
+          <div className="pos-operating-session">
+            <div ref={setOperationalDateHost} />
+            <Button variant="outline" onClick={() => void drawer()}><Banknote />Buka Laci <kbd>F10</kbd></Button>
+          </div>
           <div className="pos-primary-nav">{primary.map(tab => <Button key={tab.view} variant={view === tab.view ? 'default' : 'ghost'} aria-current={view === tab.view ? 'page' : undefined} onClick={() => navigate(tab.view)}><tab.icon />{tab.title}</Button>)}</div>
           <details className="pos-more" ref={moreRef}><summary aria-label="Menu lainnya"><Menu /><span className="sr-only">Menu lainnya</span></summary><div className="pos-more-menu">
             <p className="pos-user-label">{user.username ?? user.nama} · {owner ? 'Pemilik' : 'Kasir'}</p>
@@ -135,7 +139,7 @@ function Workspace({ user }: { user: User }) {
       {error && <div className="pos-error-banner flex items-center gap-2"><div className="flex-1"><ErrorBox>{error}</ErrorBox></div><Button variant="ghost" aria-label="Tutup pesan kesalahan" onClick={() => setError('')}><X /></Button></div>}
     </div>
     {notice && <div role="status" className="pos-toast"><span>{notice}</span><button aria-label="Tutup pemberitahuan" onClick={() => setNotice('')}><X className="size-4" /></button></div>}
-    <SaleCheckout user={user} data={data} active={view === 'cashier'} onSaved={saved} onReprint={print} onProductUpdated={product => setData(previous => ({ ...previous, products: previous.products.map(row => row.id === product.id ? product : row) }))} />
+    <SaleCheckout user={user} data={data} active={view === 'cashier'} operationalDateHost={operationalDateHost} onSaved={saved} onReprint={print} onProductUpdated={product => setData(previous => ({ ...previous, products: previous.products.map(row => row.id === product.id ? product : row) }))} />
     {owner && <Checkout user={user} data={data} purchase active={view === 'purchases'} onSaved={saved} />}
     {view === 'purchases' && owner && <Inventory data={data} refresh={refreshStocks} />}
     {view === 'products' && <Products data={data} refresh={refresh} owner={owner} />}

@@ -6,15 +6,17 @@ transaksi juga melalui API Go; Supabase digunakan sebagai database PostgreSQL.
 
 ## Persiapan database dan backend
 
-1. Database baru: jalankan `../supabase/schema.sql` terbaru sekali di SQL Editor.
+1. Database baru: jalankan `../database/schema.sql` terbaru sekali di SQL Editor.
+   Lanjutkan dengan `../database/migrations/20261101_tanggal_pendapatan.sql` untuk
+   memisahkan tanggal pendapatan dari waktu pencatatan transaksi.
 2. Database yang sudah memakai schema versi sebelumnya: jalankan
-   `../supabase/integrasi_kasir.sql` sekali. Migrasi menambahkan jenis pembayaran,
+   `../database/migrations/integrasi_kasir.sql` sekali. Migrasi menambahkan jenis pembayaran,
    snapshot nama produk, serta idempotency key. Jangan jalankan migrasi ini sesudah
    memasang schema terbaru, karena kolomnya sudah tersedia.
 3. Jika format nomor struk belum diperbarui, jalankan juga
-   `../supabase/ubah_format_nomor.sql`.
+   `../database/migrations/ubah_format_nomor.sql`.
 4. Jika database menggunakan schema lama, jalankan juga
-   `../supabase/auth_username_password.sql`. Database baru cukup `schema.sql` terbaru.
+   `../database/migrations/auth_username_password.sql`. Database baru mengikuti langkah 1.
    Registrasi pemilik dilakukan langsung pada frontend dengan username/password.
 5. Jalankan backend sesuai README-nya. Untuk frontend lokal default, set:
 
@@ -76,6 +78,25 @@ nilai `NEXT_PUBLIC_*` yang sudah dibundel. Pengembangan lokal melalui `npm run d
 tetap memakai `.env.local` seperti sebelumnya.
 
 ## Menu dan penggunaan
+
+### Tanggal pendapatan dan pembatalan
+
+Pada menu Penjualan, **Tanggal pendapatan (WIB)** menentukan hari pemasukan masuk
+Ringkasan Harian. Default hari ini; tanggal sebelumnya boleh dipilih, tanggal
+mendatang ditolak. Pilihan tersimpan per tab transaksi dan tetap sama saat retry.
+Setelah pembayaran utama selesai, transaksi berikutnya kembali ke hari ini.
+
+Contoh: penjualan dicatat 1 November untuk pendapatan 31 Oktober. Angkanya masuk
+ringkasan 31 Oktober, tetapi riwayat, filter riwayat, nomor struk, dan mutasi stok
+tetap mengikuti waktu pencatatan sebenarnya. Detail riwayat menampilkan tanggal
+pendapatan secara terpisah. Pembelian tidak memakai tanggal pendapatan penjualan.
+
+Pendapatan = penjualan sebelum pembatalan − transaksi dibatalkan. Angka berhasil,
+tunai, dan non-tunai sudah mengecualikan pembatalan; tidak dipotong dua kali.
+Pembatalan mengurangi pendapatan pada tanggal pendapatan asal, bukan tanggal refund.
+Klik **Muat ulang** untuk melihat data terbaru; halaman juga memperbarui data saat
+kembali aktif. Laporan tersimpan tetap menjadi snapshot. Jika sumber berubah,
+peringatan menyediakan akses ke pendapatan terbaru untuk disimpan sebagai versi baru.
 
 ### Registrasi dan login sederhana
 
