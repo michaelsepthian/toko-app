@@ -50,7 +50,7 @@ type paymentInput struct {
 
 // Resource generik hanya untuk master sederhana. Transaksi memiliki service khusus.
 // DTO terpisah dan daftar kolom eksplisit mencegah client mengubah ID/timestamp.
-func resource[I, M any](mux *http.ServeMux, db *gorm.DB, invalidate func(), path string, columns []string, build func(I) (M, error)) {
+func resource[I, M any](mux *http.ServeMux, db *gorm.DB, invalidate func(), path string, columns []string, build func(I, int64) (M, error)) {
 	mux.HandleFunc("GET /api/v1/"+path, func(w http.ResponseWriter, r *http.Request) {
 		limit, offset, err := pagination(r)
 		if err != nil {
@@ -106,12 +106,12 @@ func resource[I, M any](mux *http.ServeMux, db *gorm.DB, invalidate func(), path
 			fail(w, err)
 			return
 		}
-		row, err := build(input)
+		row, err := build(input, currentUser(r).ID)
 		if err != nil {
 			fail(w, err)
 			return
 		}
-		if err := db.WithContext(r.Context()).Clauses(clause.Returning{}).Select(columns).Create(&row).Error; err != nil {
+		if err := db.WithContext(r.Context()).Clauses(clause.Returning{}).Select(append(append([]string{}, columns...), "created_by", "updated_by")).Create(&row).Error; err != nil {
 			fail(w, err)
 			return
 		}
@@ -129,12 +129,12 @@ func resource[I, M any](mux *http.ServeMux, db *gorm.DB, invalidate func(), path
 			fail(w, err)
 			return
 		}
-		row, err := build(input)
+		row, err := build(input, currentUser(r).ID)
 		if err != nil {
 			fail(w, err)
 			return
 		}
-		result := db.WithContext(r.Context()).Model(new(M)).Where("id = ?", id).Select(columns).Updates(&row)
+		result := db.WithContext(r.Context()).Model(new(M)).Where("id = ?", id).Select(append(append([]string{}, columns...), "updated_by")).Updates(&row)
 		if result.Error != nil {
 			fail(w, result.Error)
 			return
@@ -171,7 +171,7 @@ func registerMasters(mux *http.ServeMux, db *gorm.DB, invalidate func()) {
 			return
 		}
 		var product model.Produk
-		result := db.WithContext(r.Context()).Model(&product).Clauses(clause.Returning{}).Where("id = ?", id).Update("is_favorit", *input.IsFavorit)
+		result := db.WithContext(r.Context()).Model(&product).Clauses(clause.Returning{}).Where("id = ?", id).Updates(map[string]any{"is_favorit": *input.IsFavorit, "updated_by": currentUser(r).ID})
 		if result.Error != nil {
 			fail(w, result.Error)
 			return
@@ -183,44 +183,44 @@ func registerMasters(mux *http.ServeMux, db *gorm.DB, invalidate func()) {
 		invalidate()
 		respond(w, 200, product)
 	}))
-	resource(mux, db, invalidate, "kategori", []string{"nama", "deskripsi"}, func(in nameInput) (model.Kategori, error) {
-		row := model.Kategori{Nama: strings.TrimSpace(in.Nama), Deskripsi: in.Deskripsi}
+	resource(mux, db, invalidate, "kategori", []string{"nama", "deskripsi"}, func(in nameInput, userID int64) (model.Kategori, error) {
+		row := model.Kategori{Audit: model.NewAudit(userID), Nama: strings.TrimSpace(in.Nama), Deskripsi: in.Deskripsi}
 		if row.Nama == "" {
 			return row, apperror.Invalid("Nama wajib diisi")
 		}
 		return row, nil
 	})
-	resource(mux, db, invalidate, "satuan", []string{"nama"}, func(in nameInput) (model.Satuan, error) {
-		row := model.Satuan{Nama: strings.TrimSpace(in.Nama)}
+	resource(mux, db, invalidate, "satuan", []string{"nama"}, func(in nameInput, userID int64) (model.Satuan, error) {
+		row := model.Satuan{Audit: model.NewAudit(userID), Nama: strings.TrimSpace(in.Nama)}
 		if row.Nama == "" || in.Deskripsi != nil {
 			return row, apperror.Invalid("Satuan hanya menerima nama")
 		}
 		return row, nil
 	})
-	resource(mux, db, invalidate, "produk", []string{"kategori_id", "satuan_id", "sku", "barcode", "nama", "harga_jual", "stok_minimum", "aktif", "is_favorit"}, func(in productInput) (model.Produk, error) {
-		row := model.Produk{KategoriID: in.KategoriID, SatuanID: in.SatuanID, SKU: strings.TrimSpace(in.SKU), Barcode: in.Barcode,
+	resource(mux, db, invalidate, "produk", []string{"kategori_id", "satuan_id", "sku", "barcode", "nama", "harga_jual", "stok_minimum", "aktif", "is_favorit"}, func(in productInput, userID int64) (model.Produk, error) {
+		row := model.Produk{Audit: model.NewAudit(userID), KategoriID: in.KategoriID, SatuanID: in.SatuanID, SKU: strings.TrimSpace(in.SKU), Barcode: in.Barcode,
 			Nama: strings.TrimSpace(in.Nama), HargaJual: in.HargaJual, StokMinimum: in.StokMinimum, Aktif: in.Aktif, IsFavorit: in.IsFavorit}
 		if row.KategoriID <= 0 || row.SatuanID <= 0 || row.Nama == "" || row.SKU == "" || !service.Money(row.HargaJual) || row.StokMinimum.IsNegative() || !row.StokMinimum.Equal(row.StokMinimum.Round(3)) {
 			return row, apperror.Invalid("Kategori, satuan, nama, SKU, harga, atau stok minimum tidak valid")
 		}
 		return row, nil
 	})
-	resource(mux, db, invalidate, "sumber-pembelian", []string{"nama", "jenis", "nama_toko_perusahaan", "nama_kontak", "nomor_telepon", "alamat", "catatan", "aktif"}, func(in sourceInput) (model.SumberPembelian, error) {
-		row := model.SumberPembelian{Nama: strings.TrimSpace(in.Nama), Jenis: in.Jenis, NamaTokoPerusahaan: in.NamaTokoPerusahaan,
+	resource(mux, db, invalidate, "sumber-pembelian", []string{"nama", "jenis", "nama_toko_perusahaan", "nama_kontak", "nomor_telepon", "alamat", "catatan", "aktif"}, func(in sourceInput, userID int64) (model.SumberPembelian, error) {
+		row := model.SumberPembelian{Audit: model.NewAudit(userID), Nama: strings.TrimSpace(in.Nama), Jenis: in.Jenis, NamaTokoPerusahaan: in.NamaTokoPerusahaan,
 			NamaKontak: in.NamaKontak, NomorTelepon: in.NomorTelepon, Alamat: in.Alamat, Catatan: in.Catatan, Aktif: in.Aktif}
 		if row.Nama == "" || (row.Jenis != "TOKO" && row.Jenis != "SALES") {
 			return row, apperror.Invalid("Nama wajib; jenis harus TOKO atau SALES")
 		}
 		return row, nil
 	})
-	resource(mux, db, invalidate, "metode-pembayaran", []string{"nama", "jenis", "tarif_persen", "tarif_tetap", "penanggung_biaya", "untuk_penjualan", "untuk_pembelian", "aktif"}, func(in paymentInput) (model.MetodePembayaran, error) {
+	resource(mux, db, invalidate, "metode-pembayaran", []string{"nama", "jenis", "tarif_persen", "tarif_tetap", "penanggung_biaya", "untuk_penjualan", "untuk_pembelian", "aktif"}, func(in paymentInput, userID int64) (model.MetodePembayaran, error) {
 		if in.Jenis == "" {
 			in.Jenis = "LAINNYA"
 		}
 		if in.Jenis != "CASH" && in.Jenis != "QRIS" && in.Jenis != "DEBIT" && in.Jenis != "TRANSFER" && in.Jenis != "LAINNYA" {
 			return model.MetodePembayaran{}, apperror.Invalid("Jenis metode pembayaran tidak valid")
 		}
-		row := model.MetodePembayaran{Nama: strings.TrimSpace(in.Nama), TarifPersen: in.TarifPersen, TarifTetap: in.TarifTetap,
+		row := model.MetodePembayaran{Audit: model.NewAudit(userID), Nama: strings.TrimSpace(in.Nama), TarifPersen: in.TarifPersen, TarifTetap: in.TarifTetap,
 			Jenis:           in.Jenis,
 			PenanggungBiaya: in.PenanggungBiaya, UntukPenjualan: in.UntukPenjualan, UntukPembelian: in.UntukPembelian, Aktif: in.Aktif}
 		if row.Nama == "" || row.TarifPersen.IsNegative() || row.TarifPersen.GreaterThan(decimal.NewFromInt(100)) || !row.TarifPersen.Equal(row.TarifPersen.Round(4)) || !service.Money(row.TarifTetap) ||

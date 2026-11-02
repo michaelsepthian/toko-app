@@ -7,6 +7,19 @@ import (
 	"time"
 )
 
+// Audit menyimpan ID pengguna terverifikasi; nil berarti pelaku data lama tidak diketahui.
+type Audit struct {
+	CreatedBy *int64 `json:"created_by"`
+	UpdatedBy *int64 `json:"updated_by"`
+}
+
+func NewAudit(userID int64) Audit { return Audit{CreatedBy: &userID, UpdatedBy: &userID} }
+
+type Cancellation struct {
+	CancelTransactionAt *time.Time `json:"cancel_transaction_at"`
+	CancelTransactionBy *int64     `json:"cancel_transaction_by"`
+}
+
 type Base struct {
 	ID        int64     `json:"id" gorm:"primaryKey;autoIncrement"`
 	CreatedAt time.Time `json:"created_at"`
@@ -35,6 +48,7 @@ func (SesiPengguna) TableName() string { return "sesi_pengguna" }
 
 type Kategori struct {
 	Base
+	Audit
 	Nama      string  `json:"nama"`
 	Deskripsi *string `json:"deskripsi"`
 }
@@ -43,6 +57,7 @@ func (Kategori) TableName() string { return "kategori" }
 
 type Satuan struct {
 	Base
+	Audit
 	Nama string `json:"nama"`
 }
 
@@ -50,6 +65,7 @@ func (Satuan) TableName() string { return "satuan" }
 
 type Produk struct {
 	Base
+	Audit
 	KategoriID  int64           `json:"kategori_id"`
 	SatuanID    int64           `json:"satuan_id"`
 	SKU         string          `json:"sku" gorm:"column:sku"`
@@ -65,6 +81,7 @@ func (Produk) TableName() string { return "produk" }
 
 type SumberPembelian struct {
 	Base
+	Audit
 	Nama               string  `json:"nama"`
 	Jenis              string  `json:"jenis"`
 	NamaTokoPerusahaan *string `json:"nama_toko_perusahaan"`
@@ -79,6 +96,7 @@ func (SumberPembelian) TableName() string { return "sumber_pembelian" }
 
 type MetodePembayaran struct {
 	Base
+	Audit
 	Jenis           string          `json:"jenis" gorm:"default:LAINNYA"`
 	Nama            string          `json:"nama"`
 	TarifPersen     decimal.Decimal `json:"tarif_persen" gorm:"type:numeric(7,4)"`
@@ -95,6 +113,8 @@ func (MetodePembayaran) TableName() string { return "metode_pembayaran" }
 // Nomor dan tanggal dihasilkan oleh PostgreSQL saat INSERT.
 type Header struct {
 	Base
+	Audit
+	Cancellation
 	IdempotencyKey     *string         `json:"idempotency_key,omitempty"`
 	RequestHash        string          `json:"-"`
 	Nomor              string          `json:"nomor" gorm:"default:(-)"`

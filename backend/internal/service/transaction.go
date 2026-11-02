@@ -157,7 +157,7 @@ func (s *Service) CreateTransaction(ctx context.Context, userID int64, purchase 
 		if !Money(subtotal) || in.DiskonTransaksi.GreaterThan(subtotal) {
 			return apperror.Invalid("Subtotal terlalu besar atau diskon transaksi melebihi subtotal")
 		}
-		header := model.Header{PenggunaID: userID, MetodePembayaranID: in.MetodePembayaranID,
+		header := model.Header{Audit: model.NewAudit(userID), PenggunaID: userID, MetodePembayaranID: in.MetodePembayaranID,
 			IdempotencyKey: in.IdempotencyKey, RequestHash: hash,
 			Status: "DRAFT", SubtotalBarang: subtotal, DiskonTransaksi: in.DiskonTransaksi,
 			NomorReferensi: in.NomorReferensi, Catatan: in.Catatan}
@@ -199,13 +199,13 @@ func (s *Service) CreateTransaction(ctx context.Context, userID int64, purchase 
 				if !record.TotalPembayaran.Equal(cashNote.Total) {
 					return apperror.Invalid("Total rincian pembelian harus sama dengan total catatan pengeluaran")
 				}
-				if err := tx.Model(cashNote).Updates(map[string]any{"status": "SELESAI", "pembelian_id": record.ID}).Error; err != nil {
+				if err := tx.Model(cashNote).Updates(map[string]any{"status": "SELESAI", "pembelian_id": record.ID, "updated_by": userID}).Error; err != nil {
 					return err
 				}
 			} else {
 				// Catat otomatis dalam transaksi yang sama; satu pembelian hanya punya satu catatan.
 				key := fmt.Sprintf("%x", md5.Sum([]byte(fmt.Sprintf("auto-purchase:%d", record.ID))))
-				autoNote := model.CatatanBelanja{IdempotencyKey: key, RequestHash: digest(record.ID), Tanggal: model.ReportDate(record.Tanggal.In(dailyLocation).Format("2006-01-02")), Total: record.TotalPembayaran, Catatan: "Pembelian " + record.Nomor, PenggunaID: userID, Status: "SELESAI", PembelianID: &record.ID}
+				autoNote := model.CatatanBelanja{Audit: model.NewAudit(userID), IdempotencyKey: key, RequestHash: digest(record.ID), Tanggal: model.ReportDate(record.Tanggal.In(dailyLocation).Format("2006-01-02")), Total: record.TotalPembayaran, Catatan: "Pembelian " + record.Nomor, PenggunaID: userID, Status: "SELESAI", PembelianID: &record.ID}
 				if err := tx.Create(&autoNote).Error; err != nil {
 					return err
 				}
@@ -321,11 +321,11 @@ func (s *Service) Cancel(ctx context.Context, userID, id int64, purchase bool, r
 				return err
 			}
 		}
-		if err := tx.Table(table).Where("id = ?", id).Updates(map[string]any{"status": "BATAL"}).Error; err != nil {
+		if err := tx.Table(table).Where("id = ?", id).Updates(map[string]any{"status": "BATAL", "updated_by": userID, "cancel_transaction_at": gorm.Expr("CURRENT_TIMESTAMP"), "cancel_transaction_by": userID}).Error; err != nil {
 			return err
 		}
 		if purchase {
-			return tx.Model(&model.CatatanBelanja{}).Where("pembelian_id = ? AND status = 'SELESAI'", id).Update("status", "BATAL").Error
+			return tx.Model(&model.CatatanBelanja{}).Where("pembelian_id = ? AND status = 'SELESAI'", id).Updates(map[string]any{"status": "BATAL", "updated_by": userID, "cancel_transaction_at": gorm.Expr("CURRENT_TIMESTAMP"), "cancel_transaction_by": userID}).Error
 		}
 		return nil
 	})

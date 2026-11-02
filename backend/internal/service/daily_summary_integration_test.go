@@ -334,7 +334,7 @@ func TestDailySummaryIntegration(t *testing.T) {
 		if err != nil || !current.TotalPembelian.IsZero() {
 			t.Fatal("cash out moved to itemization day", current, err)
 		}
-		if err := svc.CancelCashPurchaseNote(ctx, note.ID); err == nil {
+		if err := svc.CancelCashPurchaseNote(ctx, user.ID, note.ID); err == nil {
 			t.Fatal("linked note independently canceled")
 		}
 		key = "00000000-0000-4000-8000-000000000123"
@@ -379,7 +379,7 @@ func TestDailySummaryIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := svc.CancelCashPurchaseNote(ctx, open.ID); err != nil {
+		if err := svc.CancelCashPurchaseNote(ctx, user.ID, open.ID); err != nil {
 			t.Fatal(err)
 		}
 		snapshot, err = svc.PreviewDailySummary(ctx, noteInput.Tanggal)
@@ -510,4 +510,6 @@ func TestDailySummaryIntegration(t *testing.T) {
 			t.Fatal("future income day accepted")
 		}
 	})
+	t.Run("audit lifecycle", func(t *testing.T) { testAuditLifecycle(t, db, user, cash) })
+
 }

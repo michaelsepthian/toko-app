@@ -8,3 +8,8 @@ backups/
 # Data impor pribadi dan hasil dump database
 /database/private/
 *.dump
+
+# State deployment VPS dan backup sebelum migrasi
+/.deploy/
+/deploy/__pycache__/
+/deploy/tests/__pycache__/

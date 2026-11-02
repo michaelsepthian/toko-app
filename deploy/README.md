@@ -289,3 +289,9 @@ Migrasi menambahkan tabel dan catatan tertaut untuk pembelian lama, tanpa mengub
 sudah mencakup seluruhnya melalui `database/schema.sql`. Setelah migrasi, gunakan
 image API terbaru dan build frontend terbaru. Jangan menjalankan seluruh
 `schema.sql` ulang pada database toko yang sudah berisi data.
+
+## Push master → deployment otomatis
+
+Workflow GitHub Actions, build backend/frontend selektif berdasarkan isi folder,
+dan migrasi berledger tersedia. Lihat [panduan otomasi VPS](AUTOMATION.md) untuk
+persiapan SSH/GHCR, secrets GitHub, aturan migrasi, dan operasional setelah aktif.

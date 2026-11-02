@@ -57,7 +57,7 @@ func registerCashPurchaseNotes(mux *http.ServeMux, svc *service.Service) {
 			fail(w, err)
 			return
 		}
-		if err := svc.CancelCashPurchaseNote(r.Context(), id); err != nil {
+		if err := svc.CancelCashPurchaseNote(r.Context(), currentUser(r).ID, id); err != nil {
 			fail(w, err)
 			return
 		}

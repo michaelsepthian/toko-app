@@ -43,12 +43,12 @@ func (s *Service) CreateCashPurchaseNote(ctx context.Context, userID int64, in C
 		if !errors.Is(found, gorm.ErrRecordNotFound) {
 			return found
 		}
-		row = model.CatatanBelanja{IdempotencyKey: in.IdempotencyKey, RequestHash: hash, Tanggal: model.ReportDate(date.Format("2006-01-02")), Total: in.Total, Catatan: strings.TrimSpace(in.Catatan), PenggunaID: userID, Status: "TERBUKA"}
+		row = model.CatatanBelanja{Audit: model.NewAudit(userID), IdempotencyKey: in.IdempotencyKey, RequestHash: hash, Tanggal: model.ReportDate(date.Format("2006-01-02")), Total: in.Total, Catatan: strings.TrimSpace(in.Catatan), PenggunaID: userID, Status: "TERBUKA"}
 		return tx.Create(&row).Error
 	})
 	return row, err
 }
-func (s *Service) CancelCashPurchaseNote(ctx context.Context, id int64) error {
+func (s *Service) CancelCashPurchaseNote(ctx context.Context, userID, id int64) error {
 	return s.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var row model.CatatanBelanja
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&row, id).Error; err != nil {
@@ -57,6 +57,6 @@ func (s *Service) CancelCashPurchaseNote(ctx context.Context, id int64) error {
 		if row.Status != "TERBUKA" {
 			return apperror.Conflict("Hanya catatan belanja yang belum dirinci yang dapat dibatalkan")
 		}
-		return tx.Model(&row).Update("status", "BATAL").Error
+		return tx.Model(&row).Updates(map[string]any{"status": "BATAL", "updated_by": userID, "cancel_transaction_at": gorm.Expr("CURRENT_TIMESTAMP"), "cancel_transaction_by": userID}).Error
 	})
 }

@@ -49,6 +49,8 @@ func (d *ReportDate) Scan(value any) error {
 }
 
 type CatatanBelanja struct {
+	Audit
+	Cancellation
 	ID             int64           `json:"id" gorm:"primaryKey;autoIncrement"`
 	IdempotencyKey string          `json:"-"`
 	RequestHash    string          `json:"-"`

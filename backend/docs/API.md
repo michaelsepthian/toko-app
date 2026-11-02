@@ -265,3 +265,15 @@ Untuk database yang sudah ada, jalankan `database/migrations/produk_favorit.sql`
 menjalankan backend baru. Instalasi baru memakai `database/schema.sql` yang
 sudah menyertakan kolom ini. Favorit lama di browser tidak otomatis dipindahkan;
 pemilik perlu menandainya kembali sekali.
+
+### Audit pengguna
+
+Respons kategori, satuan, produk, sumber pembelian, metode pembayaran, penjualan,
+pembelian, dan catatan belanja menyertakan `created_by` dan `updated_by`
+(ID pengguna, nullable untuk data historis). Keduanya ditetapkan server dari sesi
+pengguna; field audit tidak diterima sebagai input. Pada pembuatan awal keduanya
+berisi ID pembuat; pembaruan mempertahankan `created_by`.
+Respons penjualan, pembelian, dan catatan belanja juga menyertakan
+`cancel_transaction_at` (timestamp dengan zona waktu) dan `cancel_transaction_by`
+(ID pengguna). Keduanya NULL sebelum pembatalan atau bila audit historis tidak
+tersedia. Pembatalan pembelian mengisi audit yang sama pada catatan terkait.
