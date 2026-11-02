@@ -352,3 +352,88 @@ test('nominal form baru kosong dan diskon serta tarif kosong dikirim sebagai nol
   expect(method.body.tarif_tetap).toBe('0')
   expect(method.body.tarif_persen).toBe('0')
 })
+
+for (const width of [320, 390, 768, 1440]) {
+  test(`penjualan, produk dan detail riwayat responsif ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 })
+    await mockAPI(page)
+    const drawer = page.getByRole('button', { name: 'Buka Laci', exact: true })
+    const menu = page.getByLabel('Menu lainnya', { exact: true })
+    const drawerBounds = await drawer.boundingBox()
+    const menuBounds = await menu.boundingBox()
+    expect(Math.abs(drawerBounds!.y - menuBounds!.y)).toBeLessThanOrEqual(1)
+    expect(menuBounds!.x).toBeGreaterThan(drawerBounds!.x)
+    await menu.click()
+    await expect(page.getByRole('button', { name: 'Perangkat', exact: true })).toBeVisible()
+    expect(await page.locator('.pos-more-menu').evaluate(el => { const bounds = el.getBoundingClientRect(); return bounds.left >= 0 && bounds.right <= innerWidth })).toBe(true)
+    await menu.click()
+    const noOverflow = async () => { const overflow = await page.evaluate(() => [...document.querySelectorAll('body *')].filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.right > innerWidth }).map(el => ({ class: el.className, right: el.getBoundingClientRect().right })).slice(0, 10)); expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), JSON.stringify(overflow)).toBe(true) }
+    await noOverflow()
+    await page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }).click()
+    await expect(page.getByLabel('Jumlah Beras Ramos')).toHaveValue('1')
+    if (width < 1024) await page.getByRole('link', { name: /Keranjang/ }).click()
+    await noOverflow()
+    await page.screenshot({ path: `test-results/mobile-sales-${width}.png`, fullPage: true })
+    await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Produk', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Daftar Produk', exact: true })).toBeVisible()
+    if (width < 1024) {
+      await expect(page.getByLabel('Nama produk', { exact: true })).not.toBeVisible()
+      await page.getByRole('button', { name: 'Tambah Produk', exact: true }).click()
+      await expect(page.getByLabel('Nama produk', { exact: true })).toBeFocused()
+      await page.getByRole('button', { name: 'Tutup form' }).click()
+    }
+    await page.getByRole('button', { name: 'Edit Beras Ramos', exact: true }).click()
+    await expect(page.getByLabel('Nama produk', { exact: true })).toHaveValue('Beras Ramos')
+    if (width < 1024) await page.getByRole('button', { name: 'Tutup form' }).click()
+    await noOverflow()
+    await page.screenshot({ path: `test-results/mobile-products-${width}.png`, fullPage: true })
+    const transaction = { id: 44, nomor: 'BILL-20261102-000044', tanggal: '2026-11-02T03:00:00Z', tanggal_pendapatan: '2026-11-01', status: 'SELESAI', metode_pembayaran_id: 1, total_tagihan: '10000', diskon_transaksi: '0', biaya_pembayaran: '0', jumlah_dibayar: '20000', kembalian: '10000', detail: [{ id: 1, nama_produk: 'Beras Ramos', jumlah: '1', harga_jual: '10000', diskon: '0', subtotal: '10000' }] }
+    await page.route('http://api.test/api/v1/penjualan**', route => route.fulfill({ json: { data: new URL(route.request().url()).pathname.endsWith('/44') ? transaction : [transaction] }, headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' } }))
+    await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Riwayat', exact: true }).click()
+    const row = page.getByRole('button', { name: `Detail ${transaction.nomor}`, exact: true })
+    await expect(row).toBeVisible()
+    await noOverflow()
+    await page.screenshot({ path: `test-results/mobile-history-${width}.png`, fullPage: true })
+    await row.focus()
+    await page.keyboard.press('Enter')
+    const detail = page.getByRole('dialog')
+    await expect(detail).toContainText('Beras Ramos')
+    await expect(detail).not.toContainText('Tanggal pendapatan')
+    await expect(detail).not.toContainText('Waktu pencatatan')
+    await page.screenshot({ path: `test-results/mobile-detail-${width}.png` })
+    await page.keyboard.press('Escape')
+    await expect(detail).not.toBeVisible()
+    await expect(row).toBeFocused()
+  })
+}
+
+for (const width of [320, 1440]) {
+  test(`seluruh area tanggal operasional membuka kalender ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 })
+    await page.addInitScript(() => {
+      Object.defineProperty(HTMLInputElement.prototype, 'showPicker', { configurable: true, value() {
+        this.dataset.pickerOpens = String(Number(this.dataset.pickerOpens ?? 0) + 1)
+      } })
+    })
+    await mockAPI(page)
+    const date = page.getByLabel('Tanggal operasional (WIB)', { exact: true })
+    const control = page.locator('.pos-operating-date')
+    const bounds = await control.boundingBox()
+    expect(bounds).not.toBeNull()
+    const positions = [{ x: 5, y: 5 }, { x: bounds!.width / 2, y: bounds!.height / 2 }, { x: bounds!.width - 5, y: bounds!.height - 5 }]
+    for (const [index, position] of positions.entries()) {
+      await control.click({ position })
+      await expect(date).toHaveAttribute('data-picker-opens', String(index + 1))
+      await page.keyboard.press('Escape')
+    }
+    await date.focus()
+    await page.keyboard.press('Enter')
+    await page.keyboard.press('Space')
+    await expect(date).toHaveAttribute('data-picker-opens', '5')
+    await date.fill('2026-10-01')
+    await expect(control).toContainText('1 Oktober 2026')
+    await expect(date).toHaveAttribute('max', jakartaDay())
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await page.screenshot({ path: `test-results/operational-date-${width}.png` })
+  })
+}

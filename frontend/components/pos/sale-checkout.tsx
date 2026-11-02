@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import Decimal from 'decimal.js'
-import { Banknote, Barcode, Check, CircleAlert, CreditCard, LoaderCircle, Minus, Plus, Printer, QrCode, RotateCcw, Search, ShoppingBasket, Trash2, WalletCards, X } from 'lucide-react'
+import { Banknote, Barcode, CalendarDays, Check, CircleAlert, CreditCard, LoaderCircle, Minus, Plus, Printer, QrCode, RotateCcw, Search, ShoppingBasket, Trash2, WalletCards, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { api, message } from '@/lib/api'
 import { exactProduct, groupedCash, isBarcodeQuery, isSearchCharacter } from '@/lib/keyboard'
@@ -344,11 +344,19 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
   const itemCount = cart.reduce((sum, line) => sum.plus(line.quantity || 0), new Decimal(0)).toString()
   return <div hidden={!active}>
     {operationalDateHost && createPortal(<label className="pos-operating-date" data-backdated={drafts.ready && incomeDate !== jakartaDay()} title="Hari operasional kasir. Penjualan masuk ringkasan pada tanggal ini.">
-      <span>Tanggal operasional <small>WIB</small></span>
-      <input id="sale-income-date" aria-label="Tanggal operasional (WIB)" type="date" max={jakartaDay()} value={drafts.ready ? incomeDate : ''} disabled={!active || switchingLocked} aria-invalid={drafts.ready && !incomeDateValid} onChange={event => drafts.update({ incomeDate: event.target.value })} />
+      <span className="pos-operating-caption">Tanggal operasional <small>WIB</small></span>
+      <span className="pos-operating-value" aria-hidden="true">{drafts.ready && incomeDateValid ? incomeDateLabel(incomeDate) : 'Pilih tanggal'}</span><CalendarDays className="pos-operating-icon" aria-hidden="true" />
+      <input id="sale-income-date" onClick={event => {
+        try { event.currentTarget.showPicker?.() } catch { /* Native date input remains available when showPicker is unsupported. */ }
+      }} onKeyDown={event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return
+        if (typeof event.currentTarget.showPicker !== 'function') return
+        try { event.currentTarget.showPicker(); event.preventDefault() } catch { /* Preserve native keyboard behavior. */ }
+      }} aria-label="Tanggal operasional (WIB)" type="date" max={jakartaDay()} value={drafts.ready ? incomeDate : ''} disabled={!active || switchingLocked} aria-invalid={drafts.ready && !incomeDateValid} onChange={event => drafts.update({ incomeDate: event.target.value })} />
     </label>, operationalDateHost)}
+    <nav className="sale-mobile-nav" aria-label="Bagian penjualan"><a href="#sale-mobile-catalog">Pilih Produk</a><a href="#sale-mobile-cart">Keranjang <span>{itemCount}</span></a></nav>
     <SaleLayout>
-      <section className="sale-panel sale-cart" aria-labelledby="cart-heading">
+      <section id="sale-mobile-cart" className="sale-panel sale-cart" aria-labelledby="cart-heading">
         <div className="sale-draft-strip"><div ref={draftTabsRef} className="sale-draft-tabs" role="tablist" aria-label="Transaksi berjalan">
           {drafts.drafts.map((draft, slot) => <div className="sale-draft-tab" data-selected={drafts.active === slot} role="presentation" key={draft.id}><button type="button" id={`sale-draft-tab-${slot}`} role="tab" aria-selected={drafts.active === slot} aria-controls="sale-active-cart" aria-keyshortcuts={slot < 9 ? `Alt+${slot + 1}` : undefined} tabIndex={drafts.active === slot ? 0 : -1} disabled={switchingLocked} title={`Transaksi ${slot + 1}${slot < 9 ? ` · Alt + ${slot + 1}` : ''}`} onClick={() => switchDraft(slot)} onKeyDown={event => {
             const next = event.key === 'Home' ? 0 : event.key === 'End' ? drafts.drafts.length - 1 : event.key === 'ArrowLeft' ? (slot + drafts.drafts.length - 1) % drafts.drafts.length : event.key === 'ArrowRight' ? (slot + 1) % drafts.drafts.length : null
@@ -381,7 +389,7 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
         </div>
       </section>
 
-      <section className="sale-panel sale-catalog" aria-label="Daftar produk"><div className="sale-search-area">
+      <section id="sale-mobile-catalog" className="sale-panel sale-catalog" aria-label="Daftar produk"><div className="sale-search-area">
         <form className="sale-search" onSubmit={event => { event.preventDefault(); void chooseSearchResult() }}><Search /><input ref={searchRef} type="search" autoComplete="off" aria-label="Cari atau scan produk penjualan" aria-controls="sale-products" placeholder="Cari nama produk atau scan barcode..." disabled={locked} value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => {
           if (event.isDefaultPrevented() || event.nativeEvent.isComposing) return
           if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -414,7 +422,7 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
         <div className="sale-payment-heading"><div><p className="sale-eyebrow">PEMBAYARAN</p><h2 id="sale-payment-title">Konfirmasi Pembayaran</h2></div><Button variant="outline" className="sale-modal-close" disabled={busy} aria-label="Tutup pembayaran" onClick={finish}><X /></Button></div>
         <ErrorBox>{error}</ErrorBox>
         <div className="sale-payment-total"><p>Total Belanja</p><strong>{money(preview.total)}</strong></div>
-        <p className="mb-3 text-sm text-muted-foreground">Tanggal pendapatan: <strong>{incomeDateLabel(incomeDate)}</strong>. Riwayat mencatat waktu pembayaran sebenarnya.</p>
+        <p className="mb-3 text-sm text-muted-foreground">Tanggal pendapatan: <strong>{incomeDateLabel(incomeDate)}</strong></p>
         {pending ? <p className="sale-pending">Hasil penyimpanan belum terkonfirmasi. Tekan tombol di bawah untuk memeriksa request yang sama.</p> : method?.jenis === 'CASH' ? <label className="sale-cash-label" htmlFor="sale-cash">Uang diterima<div className="sale-cash-input"><span>Rp</span><input data-autofocus id="sale-cash" inputMode="numeric" autoComplete="off" disabled={busy} placeholder="Masukkan uang diterima" value={groupedCash(paid)} onFocus={event => event.currentTarget.select()} onChange={event => setPaid(event.target.value.replace(/\D/g, '').replace(/^0+(?=\d)/, '').slice(0, 16))} /></div></label> : <div className="sale-noncash"><p>Metode: <strong>{method?.nama}</strong></p><p>Pastikan pembayaran {money(preview.total)} sudah berhasil pada QRIS/terminal.</p></div>}
         {method?.jenis !== 'CASH' && !pending && <div className="sale-reference"><Field label="Referensi pembayaran (opsional)" value={reference} onChange={setReference} disabled={busy} /></div>}
         <label className="sale-print"><input type="checkbox" checked={print} disabled={busy} onChange={event => setPrint(event.target.checked)} /><Printer />Print struk setelah pembayaran</label>
