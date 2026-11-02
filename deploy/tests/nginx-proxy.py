@@ -13,13 +13,18 @@ containers = []
 
 
 def docker(*args):
-    return subprocess.run(["docker", *args], text=True, capture_output=True, check=True).stdout.strip()
+    result = subprocess.run(["docker", *args], text=True, capture_output=True)
+    if result.returncode:
+        raise RuntimeError(f"Docker gagal ({result.returncode}): docker {' '.join(args)}\n{result.stderr.strip()}")
+    return result.stdout.strip()
 
 
 def start(name, *args):
     identifier = prefix + "-" + name
-    docker("run", "-d", "--name", identifier, *args)
+    # docker run can create a container before failing to start it. Include the
+    # name in cleanup even on failure so CI does not leave partial test resources.
     containers.append(identifier)
+    docker("run", "-d", "--name", identifier, *args)
     return identifier
 
 
@@ -58,13 +63,13 @@ try:
         expect(base + "/?probe=1", "frontend-v1:/?probe=1")
         for alias, old, port in (("api", api, 8080), ("frontend", frontend, 3000)):
             old_ip = docker("inspect", "--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", old)
-            docker("rm", "-f", old)
-            containers.remove(old)
-            # Occupy its previous IP so a replacement must get a different address.
-            start(alias + "-hold", "--network", prefix, "--ip", old_ip, "nginx:stable", "sleep", "120")
+            # Keep the old address allocated until Docker assigns a different
+            # dynamic IP to its replacement. No static IP/subnet support needed.
             new = upstream(alias + "2", alias, port, alias + "-v2")
             new_ip = docker("inspect", "--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", new)
             assert new_ip != old_ip
+            docker("rm", "-f", old)
+            containers.remove(old)
             path = "/api/v1/setup?probe=1" if alias == "api" else "/?probe=1"
             expect(base + path, alias + "-v2:" + path)
         print("Nginx: routes, query strings, dan DNS setelah penggantian API/frontend lulus.")
