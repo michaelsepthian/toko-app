@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { LoaderCircle, Plus, Search, Star } from 'lucide-react'
+import { LoaderCircle, Search, Star } from 'lucide-react'
 import type { Product } from '@/lib/types'
 import { money } from '@/lib/pos'
 import { catalogOffsets, catalogWindow } from '@/lib/catalog-window'
@@ -80,7 +80,7 @@ function MeasuredRows({ products, categories, highlight, locked, active, onHighl
         {products.slice(row * columns, (row + 1) * columns).map((product, column) => {
           const index = row * columns + column
           return <div className="sale-product-tile" key={product.id}><button type="button" disabled={locked} aria-label={`Tambah ${product.nama} ke keranjang`} data-highlighted={index === highlight} aria-current={index === highlight ? 'true' : undefined} onFocus={() => onHighlight(index)} onMouseEnter={() => onHighlight(index)} className="sale-product" onClick={() => onAdd(product)}>
-            <div className="sale-product-top"><span>{categories.get(product.kategori_id) ?? 'Produk'}</span><Plus /></div><h3>{product.nama}</h3><strong>{money(product.harga_jual)}</strong>
+            <div className="sale-product-top"><span>{categories.get(product.kategori_id) ?? 'Produk'}</span></div><h3>{product.nama}</h3><strong>{money(product.harga_jual)}</strong>
           </button><button type="button" className="sale-product-favorite" disabled={locked || favoriteBusyID !== null || !favoriteEditable} aria-busy={favoriteBusyID === product.id} aria-label={favoriteBusyID === product.id ? `Menyimpan favorit ${product.nama}` : `${favorites.has(product.id) ? 'Hapus' : 'Tandai'} favorit ${product.nama}`} aria-pressed={favorites.has(product.id)} title={!favoriteEditable ? 'Favorit toko diatur oleh pemilik' : favorites.has(product.id) ? 'Hapus favorit untuk semua pengguna' : 'Jadikan favorit untuk semua pengguna'} onClick={() => onToggleFavorite(product.id)}>{favoriteBusyID === product.id ? <LoaderCircle className="animate-spin" /> : <Star fill={favorites.has(product.id) ? 'currentColor' : 'none'} />}</button></div>
         })}
       </MeasuredRow>

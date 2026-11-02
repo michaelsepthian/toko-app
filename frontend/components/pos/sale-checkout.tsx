@@ -18,6 +18,7 @@ import { ErrorBox, Field } from './common'
 import { SaleLayout } from './sale-layout'
 import { SaleCatalog } from './sale-catalog'
 import { SearchSelect } from './search-select'
+import { MobileCartTabs, type MobileCartPanel } from './mobile-cart-tabs'
 import { parseProductOrder, productSortOptions, sortProducts, type ProductOrderSettings, type ProductPopularity, type ProductSort } from '@/lib/product-sort'
 
 type Props = { user: User; data: Data; active: boolean; operationalDateHost: HTMLDivElement | null; onSaved: (sale: Transaction, purchase: boolean, print: boolean) => Promise<void>; onReprint: (sale: Transaction) => Promise<void>; onProductUpdated: (product: Product) => void }
@@ -32,6 +33,7 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
   const setPrint = (print: boolean) => drafts.update({ print })
   const cartRef = useRef<CartLine[]>([])
   const [query, setQuery] = useState('')
+  const [mobilePanel, setMobilePanel] = useState<MobileCartPanel>('products')
   const [highlight, setHighlight] = useState(0)
   const [order, setOrder] = useState<ProductOrderSettings>({ sort: 'recommended', favoritesFirst: false })
   const [orderReady, setOrderReady] = useState(false)
@@ -265,12 +267,13 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
       }
       if (modal || locked) return
       if (event.key === 'F9') { event.preventDefault(); clearCart(); return }
-      if (event.key === 'F2') { event.preventDefault(); searchRef.current?.focus(); searchRef.current?.select(); return }
+      if (event.key === 'F2') { event.preventDefault(); setMobilePanel('products'); requestAnimationFrame(() => { searchRef.current?.focus(); searchRef.current?.select() }); return }
       if (event.key === 'F3') {
         event.preventDefault()
         const id = selectedCart ?? cartRef.current.at(-1)?.product.id
         const input = id ? quantityRefs.current.get(id) : undefined
-        input?.focus(); input?.select(); return
+        if (input) { setMobilePanel('cart'); requestAnimationFrame(() => { input.focus(); input.select() }) }
+        return
       }
       const target = event.target as HTMLElement
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target.isContentEditable) return
@@ -278,8 +281,8 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
       if (isSearchCharacter(event)) {
         event.preventDefault()
         setQuery(current => current + event.key)
-        searchRef.current?.focus()
-        requestAnimationFrame(() => { const input = searchRef.current; if (input) input.setSelectionRange(input.value.length, input.value.length) })
+        setMobilePanel('products')
+        requestAnimationFrame(() => { const input = searchRef.current; if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length) } })
       }
     }
     window.addEventListener('keydown', keyboard)
@@ -342,7 +345,7 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
   }
 
   const itemCount = cart.reduce((sum, line) => sum.plus(line.quantity || 0), new Decimal(0)).toString()
-  return <div hidden={!active}>
+  return <div hidden={!active} className="sale-page" data-mobile-panel={mobilePanel}>
     {operationalDateHost && createPortal(<label className="pos-operating-date" data-backdated={drafts.ready && incomeDate !== jakartaDay()} title="Hari operasional kasir. Penjualan masuk ringkasan pada tanggal ini.">
       <span className="pos-operating-caption">Tanggal operasional <small>WIB</small></span>
       <span className="pos-operating-value" aria-hidden="true">{drafts.ready && incomeDateValid ? incomeDateLabel(incomeDate) : 'Pilih tanggal'}</span><CalendarDays className="pos-operating-icon" aria-hidden="true" />
@@ -354,9 +357,10 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
         try { event.currentTarget.showPicker(); event.preventDefault() } catch { /* Preserve native keyboard behavior. */ }
       }} aria-label="Tanggal operasional (WIB)" type="date" max={jakartaDay()} value={drafts.ready ? incomeDate : ''} disabled={!active || switchingLocked} aria-invalid={drafts.ready && !incomeDateValid} onChange={event => drafts.update({ incomeDate: event.target.value })} />
     </label>, operationalDateHost)}
-    <nav className="sale-mobile-nav" aria-label="Bagian penjualan"><a href="#sale-mobile-catalog">Pilih Produk</a><a href="#sale-mobile-cart">Keranjang <span>{itemCount}</span></a></nav>
+    <MobileCartTabs prefix="sale" label="Bagian penjualan" panel={mobilePanel} count={itemCount} onChange={setMobilePanel} />
+    {!modal && (error || drafts.storageError) && <div className="mx-3 mt-3"><ErrorBox>{error || drafts.storageError}</ErrorBox></div>}
     <SaleLayout>
-      <section id="sale-mobile-cart" className="sale-panel sale-cart" aria-labelledby="cart-heading">
+      <section id="sale-panel-cart" role="tabpanel" className="sale-panel sale-cart" aria-labelledby="sale-tab-cart">
         <div className="sale-draft-strip"><div ref={draftTabsRef} className="sale-draft-tabs" role="tablist" aria-label="Transaksi berjalan">
           {drafts.drafts.map((draft, slot) => <div className="sale-draft-tab" data-selected={drafts.active === slot} role="presentation" key={draft.id}><button type="button" id={`sale-draft-tab-${slot}`} role="tab" aria-selected={drafts.active === slot} aria-controls="sale-active-cart" aria-keyshortcuts={slot < 9 ? `Alt+${slot + 1}` : undefined} tabIndex={drafts.active === slot ? 0 : -1} disabled={switchingLocked} title={`Transaksi ${slot + 1}${slot < 9 ? ` · Alt + ${slot + 1}` : ''}`} onClick={() => switchDraft(slot)} onKeyDown={event => {
             const next = event.key === 'Home' ? 0 : event.key === 'End' ? drafts.drafts.length - 1 : event.key === 'ArrowLeft' ? (slot + drafts.drafts.length - 1) % drafts.drafts.length : event.key === 'ArrowRight' ? (slot + 1) % drafts.drafts.length : null
@@ -367,7 +371,6 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
         </div></div>
         <div className="sale-panel-heading"><div><h1 id="cart-heading">Daftar Belanja</h1><p>{itemCount} barang dipilih</p></div><Button className="sale-clear" variant="ghost" disabled={locked || !cart.length} onClick={clearCart}><Trash2 />Kosongkan <kbd>F9</kbd></Button></div>
         <div className="sale-cart-body" ref={cartBodyRef} id="sale-active-cart" role="tabpanel" aria-labelledby={`sale-draft-tab-${drafts.active}`}>
-          <ErrorBox>{!modal && (error || drafts.storageError)}</ErrorBox>
           {pending && !modal && <div className="sale-pending" role="status"><p>Hasil transaksi sebelumnya belum terkonfirmasi.</p><Button disabled={busy} onClick={() => void save(true)}>Periksa / lanjutkan transaksi</Button></div>}
           {!cart.length ? <div className="sale-empty"><ShoppingBasket /><strong>Belum ada barang</strong><p>Cari atau scan produk untuk mulai berjualan.</p></div> : cart.map(line => <article className="sale-cart-line" key={line.product.id} data-active={selectedCart === line.product.id}>
             <div className="sale-line-name"><h2 title={line.product.nama}>{line.product.nama}</h2><p>{money(line.price)}</p></div>
@@ -389,7 +392,7 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
         </div>
       </section>
 
-      <section id="sale-mobile-catalog" className="sale-panel sale-catalog" aria-label="Daftar produk"><div className="sale-search-area">
+      <section id="sale-panel-products" role="tabpanel" className="sale-panel sale-catalog" aria-labelledby="sale-tab-products"><div className="sale-search-area">
         <form className="sale-search" onSubmit={event => { event.preventDefault(); void chooseSearchResult() }}><Search /><input ref={searchRef} type="search" autoComplete="off" aria-label="Cari atau scan produk penjualan" aria-controls="sale-products" placeholder="Cari nama produk atau scan barcode..." disabled={locked} value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => {
           if (event.isDefaultPrevented() || event.nativeEvent.isComposing) return
           if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
