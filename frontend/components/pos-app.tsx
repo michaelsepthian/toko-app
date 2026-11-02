@@ -123,17 +123,18 @@ function Workspace({ user }: { user: User }) {
         <nav className="pos-header-actions" aria-label="Menu utama">
           <div className="pos-operating-session">
             <div ref={setOperationalDateHost} />
-            <Button variant="outline" onClick={() => void drawer()}><Banknote />Buka Laci <kbd>F10</kbd></Button>
+            <div className="pos-quick-actions"><Button variant="outline" aria-label="Buka Laci" title="Buka Laci (F10)" onClick={() => void drawer()}><Banknote /><span className="pos-drawer-label">Buka Laci</span><kbd>F10</kbd></Button>
+              <details className="pos-more" ref={moreRef}><summary aria-label="Menu lainnya"><Menu /><span className="sr-only">Menu lainnya</span></summary><div className="pos-more-menu">
+                <p className="pos-user-label">{user.username ?? user.nama} · {owner ? 'Pemilik' : 'Kasir'}</p>
+                <Button variant="ghost" className="pos-theme-toggle" role="switch" aria-checked={dark} aria-label="Tema gelap" onClick={toggleTheme}>{dark ? <Moon /> : <Sun />}<span>Tema {dark ? 'gelap' : 'terang'}</span><span className="pos-theme-switch" aria-hidden="true"><span /></span></Button>
+                {owner && <><Button variant={view === 'purchases' ? 'default' : 'ghost'} onClick={() => navigate('purchases')}><Truck />Pembelian</Button><Button variant={view === 'masters' ? 'default' : 'ghost'} onClick={() => navigate('masters')}><WalletCards />Data Master</Button><Button variant={view === 'devices' ? 'default' : 'ghost'} onClick={() => navigate('devices')}><Settings />Perangkat</Button></>}
+                <Button variant="ghost" disabled={loading} onClick={() => { if (moreRef.current) moreRef.current.open=false; void refresh(false, true); if (view === 'purchases') void refreshStocks() }}><RefreshCw />Muat ulang data</Button>
+                {lastSale && <Button variant="ghost" onClick={() => { if (moreRef.current) moreRef.current.open=false; void print(lastSale) }}>Cetak struk terakhir</Button>}
+                <Button variant="ghost" onClick={async () => { try { await logout() } catch (err) { setError(message(err)) } }}><LogOut />Keluar</Button>
+              </div></details>
+            </div>
           </div>
           <div className="pos-primary-nav">{primary.map(tab => <Button key={tab.view} variant={view === tab.view ? 'default' : 'ghost'} aria-current={view === tab.view ? 'page' : undefined} onClick={() => navigate(tab.view)}><tab.icon />{tab.title}</Button>)}</div>
-          <details className="pos-more" ref={moreRef}><summary aria-label="Menu lainnya"><Menu /><span className="sr-only">Menu lainnya</span></summary><div className="pos-more-menu">
-            <p className="pos-user-label">{user.username ?? user.nama} · {owner ? 'Pemilik' : 'Kasir'}</p>
-            <Button variant="ghost" className="pos-theme-toggle" role="switch" aria-checked={dark} aria-label="Tema gelap" onClick={toggleTheme}>{dark ? <Moon /> : <Sun />}<span>Tema {dark ? 'gelap' : 'terang'}</span><span className="pos-theme-switch" aria-hidden="true"><span /></span></Button>
-            {owner && <><Button variant={view === 'purchases' ? 'default' : 'ghost'} onClick={() => navigate('purchases')}><Truck />Pembelian</Button><Button variant={view === 'masters' ? 'default' : 'ghost'} onClick={() => navigate('masters')}><WalletCards />Data Master</Button><Button variant={view === 'devices' ? 'default' : 'ghost'} onClick={() => navigate('devices')}><Settings />Perangkat</Button></>}
-            <Button variant="ghost" disabled={loading} onClick={() => { if (moreRef.current) moreRef.current.open=false; void refresh(false, true); if (view === 'purchases') void refreshStocks() }}><RefreshCw />Muat ulang data</Button>
-            {lastSale && <Button variant="ghost" onClick={() => { if (moreRef.current) moreRef.current.open=false; void print(lastSale) }}>Cetak struk terakhir</Button>}
-            <Button variant="ghost" onClick={async () => { try { await logout() } catch (err) { setError(message(err)) } }}><LogOut />Keluar</Button>
-          </div></details>
         </nav>
       </div></header>
       {error && <div className="pos-error-banner flex items-center gap-2"><div className="flex-1"><ErrorBox>{error}</ErrorBox></div><Button variant="ghost" aria-label="Tutup pesan kesalahan" onClick={() => setError('')}><X /></Button></div>}
