@@ -1,3 +1,4 @@
+import { createUUID } from './uuid'
 import { APIError } from './api'
 import type { Transaction, TransactionInput } from './types'
 
@@ -10,7 +11,7 @@ export async function sendCheckoutAttempt(
   input: TransactionInput | undefined,
   send: (body: TransactionInput) => Promise<Transaction>,
   onPending: (body: TransactionInput | null) => void,
-  makeID: () => string = () => crypto.randomUUID(),
+  makeID: () => string = createUUID,
 ) {
   const saved = storage.getItem(key)
   const body: TransactionInput = saved ? JSON.parse(saved) : { ...input!, idempotency_key: makeID() }

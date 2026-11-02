@@ -1,4 +1,5 @@
 'use client'
+import { createUUID } from '@/lib/uuid'
 import { useEffect, useRef, useState } from 'react'
 import { LoaderCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -30,7 +31,7 @@ export function CashPurchaseNotes({ date, userID, disabled, onChanged }: { date:
   async function save() {
     if (lock.current || disabled || (!pending && (!validNumber(total, 2, true) || Number(total) <= 0))) return
     lock.current = true; setBusy(true); setError(''); setNotice('')
-    const body = pending ?? { idempotency_key: crypto.randomUUID(), tanggal: date, total, catatan: note }
+    const body = pending ?? { idempotency_key: createUUID(), tanggal: date, total, catatan: note }
     try {
       sessionStorage.setItem(key, JSON.stringify(body)); setPending(body)
       await api<CashPurchaseNote>('/catatan-belanja', 'POST', body)

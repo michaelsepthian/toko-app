@@ -1,4 +1,5 @@
 'use client'
+import { createUUID } from '@/lib/uuid'
 import Decimal from 'decimal.js'
 import { useEffect, useRef, useState } from 'react'
 import { Download, FileText, LoaderCircle, Mail, RefreshCw, X } from 'lucide-react'
@@ -98,7 +99,7 @@ export function DailySummary({ storeName, userID }: { storeName: string; userID:
     if (saveLock.current || (!pending && (!live || !valid || loading))) return
     saveLock.current = true; setSaving(true); setError(''); setNotice('')
     try {
-      const body = pending ?? { ...form, belanja_besok: form.belanja_besok || '0', versi_perhitungan: 2, nama_toko: storeName, tanggal: date, hash_sumber: live!.hash_sumber, idempotency_key: crypto.randomUUID() }
+      const body = pending ?? { ...form, belanja_besok: form.belanja_besok || '0', versi_perhitungan: 2, nama_toko: storeName, tanggal: date, hash_sumber: live!.hash_sumber, idempotency_key: createUUID() }
       const record = await saveDailySummaryAttempt(sessionStorage, pendingKey, body, payload => api<DailySummaryRecord>('/ringkasan-harian', 'POST', payload), setPending)
       setSelected(record); setRows(previous => [record, ...previous.filter(row => row.id !== record.id)].slice(0, 10))
       setForm({ kas_aktual: record.kas_aktual, belanja_besok: record.belanja_besok, email_tujuan: record.email_tujuan ?? '', catatan: record.catatan }); setOffset(0)
