@@ -295,3 +295,14 @@ image API terbaru dan build frontend terbaru. Jangan menjalankan seluruh
 Workflow GitHub Actions, build backend/frontend selektif berdasarkan isi folder,
 dan migrasi berledger tersedia. Lihat [panduan otomasi VPS](AUTOMATION.md) untuk
 persiapan SSH/GHCR, secrets GitHub, aturan migrasi, dan operasional setelah aktif.
+
+
+### VPS dengan IP publik bersama / proxy provider
+
+Untuk setup Nginx yang digunakan otomasi, gunakan `compose.yaml` bersama
+`compose.nginx.yaml`. Nginx menerima HTTP di port 80 dan localhost:18000,
+meneruskan `/api/` ke API dan path lain ke frontend. Domain serta HTTPS dikelola
+proxy provider. Pertahankan port API/database yang ada di `.env.docker`.
+`compose.vps.yaml` adalah alternatif Caddy untuk IP publik langsung; gunakan
+satu overlay proxy saja. Detail adopsi file Nginx VPS dan pengujian tersedia di
+[AUTOMATION.md](AUTOMATION.md#transisi-vps-yang-sudah-memakai-nginx-lokal).

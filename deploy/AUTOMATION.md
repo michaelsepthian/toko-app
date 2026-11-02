@@ -28,7 +28,7 @@ jika mengubah data yang dicache, sertakan perubahan backend atau restart API.
 ## Persiapan VPS satu kali
 
 Target workflow ini **VPS Linux AMD64**, dengan frontend dan API di satu domain
-melalui `compose.yaml` + `compose.vps.yaml`. Untuk ARM64, ubah platform dan akhiran
+melalui `compose.yaml` + `compose.nginx.yaml`. Domain/HTTPS diteruskan oleh proxy provider ke Nginx pada port 80. Overlay Caddy `compose.vps.yaml` tetap tersedia untuk deployment manual VPS dengan IP publik sendiri; workflow ini memakai Nginx. Untuk ARM64, ubah platform dan akhiran
 tag pada workflow serta `auto-deploy.sh` bersama-sama.
 
 VPS membutuhkan Git, Python 3, `flock` (util-linux), Docker Engine, dan Docker
@@ -124,9 +124,9 @@ terakhir agar tidak kembali ke image lokal lama:
 ```sh
 cd /opt/toko
 docker compose --env-file .env.docker --env-file .deploy/images.env \
-  -f compose.yaml -f compose.vps.yaml ps
+  -f compose.yaml -f compose.nginx.yaml ps
 docker compose --env-file .env.docker --env-file .deploy/images.env \
-  -f compose.yaml -f compose.vps.yaml logs --tail=100 api frontend
+  -f compose.yaml -f compose.nginx.yaml logs --tail=100 api frontend
 ```
 
 Jika deployment gagal, lihat log Actions dan container. Periksa ledger sebelum
@@ -135,3 +135,28 @@ hanya setelah health check semua layanan lulus. Jangan gunakan `down -v`.
 
 Referensi: [GitHub Container Registry workflow](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images),
 [Compose up](https://docs.docker.com/reference/cli/docker/compose/up/).
+
+## Transisi VPS yang sudah memakai Nginx lokal
+
+Workflow ini mempertahankan nama project `toko`, layanan `nginx`, port `80` dan
+`127.0.0.1:18000`, serta volume PostgreSQL. `API_PORT=18080` yang sudah diisi di
+`.env.docker` tetap dipertahankan; jangan ubah menjadi 8080 karena port itu dapat
+dipakai stack lain seperti `test-docker`. Stack lain tidak dihentikan.
+
+Pada deployment pertama, hanya dua file yang **belum tercatat Git** boleh diadopsi:
+`compose.nginx.yaml` dan `deploy/nginx/default.conf`. Keduanya dipindahkan ke
+`.deploy/nginx-before-tracking-<waktu>-<pid>/` sebelum checkout konfigurasi baru.
+Path dan isi konfigurasi lama tersimpan di backup; file `.env.docker` tetap ada.
+Perubahan file tracked dan file untracked lain tetap menghentikan deployment.
+Pastikan isi file lokal memang sesuai konfigurasi Nginx yang sudah ditinjau sebelum
+menjalankan workflow ini. Jika checkout/deployment terhenti, backup tetap tersedia.
+
+Nginx baru memakai resolver DNS Docker agar dapat menemukan IP API/frontend baru
+setelah container diperbarui. Saat konfigurasi Nginx berubah, skrip membuat ulang
+container Nginx agar bind mount membaca file terbaru. Skrip juga memeriksa `/` dan
+`/api/v1/setup` melalui `http://127.0.0.1:18000` sebelum menandai deployment sukses.
+Frontend/API menunggu health check; downtime singkat masih dapat terjadi ketika
+container diganti. Domain provider tidak diubah otomatis oleh workflow.
+
+Setelah kode perubahan ini di-push ke `master`, jalankan workflow **terbaru**.
+Re-run job dari commit lama masih memakai skrip Caddy/penanganan file yang lama.

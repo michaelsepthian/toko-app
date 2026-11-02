@@ -31,6 +31,8 @@ jobs:
         run: |
           bash -n deploy/remote-update.sh deploy/auto-deploy.sh
           python3 -m unittest discover -s deploy/tests -v
+      - name: Test Nginx routing and container updates
+        run: python3 deploy/tests/nginx-proxy.py
       - name: Test migrations against PostgreSQL
         run: bash deploy/tests/migration-postgres.sh
 
