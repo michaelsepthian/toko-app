@@ -1,10 +1,11 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import { ChevronRight, LoaderCircle, X } from 'lucide-react'
+import { CalendarDays, ChevronRight, LoaderCircle, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { api, message } from '@/lib/api'
 import type { Data, Transaction } from '@/lib/types'
 import { jakartaDay } from '@/lib/history-date'
+import { incomeDateLabel } from '@/lib/income-date'
 import { dateTime, money } from '@/lib/pos'
 import { ErrorBox, Field, Panel } from './common'
 import { DailySummary } from './daily-summary'
@@ -72,8 +73,21 @@ export function History({ data, owner, refresh, print, storeName, userID }: { st
     <div className="history-tabs flex flex-wrap gap-2"><Button disabled={busy} variant={!purchase && !summaryOpen ? 'default' : 'outline'} onClick={() => { setSummaryOpen(false); setPurchase(false); setOffset(0) }}>Riwayat Penjualan</Button>{owner && <Button disabled={busy} variant={purchase && !summaryOpen ? 'default' : 'outline'} onClick={() => { setSummaryOpen(false); setPurchase(true); setOffset(0) }}>Riwayat Pembelian</Button>}{owner && <Button disabled={busy} variant={summaryOpen ? 'default' : 'outline'} onClick={() => { setSummaryOpen(true); setTarget(null) }}>Ringkasan Harian</Button>}{!summaryOpen && <Button variant="outline" disabled={busy} onClick={() => void load()}>Muat ulang</Button>}</div>
     {summaryOpen && owner ? <DailySummary storeName={storeName} userID={userID} /> : <>
     <ErrorBox>{error}</ErrorBox>
-    {!purchase && <div className="history-filter flex flex-wrap items-end gap-3 rounded-2xl border bg-card p-4"><Field label="Tanggal penjualan (WIB)" type="date" value={date} disabled={busy} onChange={value => { if (value) { setDate(value); setOffset(0) } }} /><Button variant="outline" disabled={busy} onClick={() => { setDate(jakartaDay()); setOffset(0) }}>Hari ini</Button></div>}
-    <Panel title={`Riwayat ${purchase ? 'Pembelian' : 'Penjualan'}`} subtitle={purchase ? undefined : `Tanggal ${date} · WIB`}>
+    {!purchase && <div className="history-filter flex flex-wrap items-end gap-3 rounded-2xl border bg-card p-4">
+      <label className="pos-operating-date history-date-control" title="Pilih tanggal penjualan yang ingin ditampilkan.">
+        <span className="pos-operating-caption">Tanggal penjualan <small>WIB</small></span>
+        <span className="pos-operating-value" aria-hidden="true">{incomeDateLabel(date)}</span><CalendarDays className="pos-operating-icon" aria-hidden="true" />
+        <input aria-label="Tanggal penjualan (WIB)" type="date" value={date} disabled={busy} onClick={event => {
+          try { event.currentTarget.showPicker?.() } catch { /* Preserve the native date input when showPicker is unavailable. */ }
+        }} onKeyDown={event => {
+          if (event.key !== 'Enter' && event.key !== ' ') return
+          if (typeof event.currentTarget.showPicker !== 'function') return
+          try { event.currentTarget.showPicker(); event.preventDefault() } catch { /* Preserve native keyboard behavior. */ }
+        }} onChange={event => { if (event.target.value) { setDate(event.target.value); setOffset(0) } }} />
+      </label>
+      <Button variant="outline" disabled={busy} onClick={() => { setDate(jakartaDay()); setOffset(0) }}>Hari ini</Button>
+    </div>}
+    <Panel title={`Riwayat ${purchase ? 'Pembelian' : 'Penjualan'}`} subtitle={purchase ? undefined : `Tanggal ${incomeDateLabel(date)} · WIB`}>
       <div className="history-list">{rows.map(row => <button type="button" key={row.id} className="history-row" disabled={busy} aria-haspopup="dialog" aria-label={`Detail ${row.nomor}`} onClick={() => openDetail(row)}><span className="history-row-info"><strong>{row.nomor}</strong><span className="history-row-meta">{dateTime(row.tanggal)} · {data.payments.find(p => p.id === row.metode_pembayaran_id)?.nama}</span><span className="transaction-status" data-cancelled={row.status === 'BATAL'}>{row.status}</span></span><strong className="history-row-total">{money(row.total_tagihan ?? row.total_pembayaran ?? '0')}</strong><ChevronRight className="history-row-chevron" aria-hidden="true" /></button>)}{!rows.length && <p className="py-8 text-muted-foreground">{busy ? 'Memuat…' : purchase ? 'Belum ada transaksi.' : 'Tidak ada penjualan pada tanggal ini.'}</p>}</div>
       <div className="history-pagination mt-5 flex items-center justify-between"><Button variant="outline" disabled={busy || offset === 0} onClick={() => setOffset(n => Math.max(0, n - 20))}>Sebelumnya</Button><span className="text-sm">Halaman {offset / 20 + 1}</span><Button variant="outline" disabled={busy || rows.length < 20} onClick={() => setOffset(n => n + 20)}>Berikutnya</Button></div>
     </Panel>

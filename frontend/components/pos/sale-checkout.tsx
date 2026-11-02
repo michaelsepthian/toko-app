@@ -95,7 +95,7 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
   const locked = !drafts.ready || !checkout.ready || busy || Boolean(pending)
   const switchingLocked = locked || modal
   const incomeDate = pending?.tanggal_pendapatan ?? (drafts.draft.incomeDate || jakartaDay())
-  const incomeDateValid = validIncomeDate(incomeDate) && incomeDate <= jakartaDay()
+  const incomeDateValid = validIncomeDate(incomeDate)
   const methods = data.payments.filter(method => method.aktif && method.untuk_penjualan)
   const method = methods.find(method => method.id === methodID) ?? methods.find(method => method.jenis === 'CASH') ?? methods[0]
   const valid = validLines(cart, discount)
@@ -199,7 +199,7 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
   }
   function openPayment() {
     if (!valid || !method || locked) return
-    if (!incomeDateValid) { setError('Pilih tanggal pendapatan yang valid, maksimal hari ini (WIB).'); return }
+    if (!incomeDateValid) { setError('Pilih tanggal pendapatan yang valid.'); return }
     setError(''); setPaymentError(''); setChangePreview(null); setPaymentStage('confirm'); setCompleted(null); setModal(true)
   }
   function finish() { if (savingRef.current || busy || paymentStage === 'saving' || (pending && !completed)) return; setPaymentStage('confirm'); setPaymentError(''); setChangePreview(null); setModal(false); setCompleted(null); setError(''); focusSearch() }
@@ -355,7 +355,7 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
         if (event.key !== 'Enter' && event.key !== ' ') return
         if (typeof event.currentTarget.showPicker !== 'function') return
         try { event.currentTarget.showPicker(); event.preventDefault() } catch { /* Preserve native keyboard behavior. */ }
-      }} aria-label="Tanggal operasional (WIB)" type="date" max={jakartaDay()} value={drafts.ready ? incomeDate : ''} disabled={!active || switchingLocked} aria-invalid={drafts.ready && !incomeDateValid} onChange={event => drafts.update({ incomeDate: event.target.value })} />
+      }} aria-label="Tanggal operasional (WIB)" type="date" value={drafts.ready ? incomeDate : ''} disabled={!active || switchingLocked} aria-invalid={drafts.ready && !incomeDateValid} onChange={event => drafts.update({ incomeDate: event.target.value })} />
     </label>, operationalDateHost)}
     <MobileCartTabs prefix="sale" label="Bagian penjualan" panel={mobilePanel} count={itemCount} onChange={setMobilePanel} />
     {!modal && (error || drafts.storageError) && <div className="mx-3 mt-3"><ErrorBox>{error || drafts.storageError}</ErrorBox></div>}

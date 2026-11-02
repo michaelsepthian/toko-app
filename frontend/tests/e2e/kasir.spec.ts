@@ -320,12 +320,14 @@ test('nominal form baru kosong dan diskon serta tarif kosong dikirim sebagai nol
   const calls = await mockAPI(page)
   const nav = page.getByRole('navigation', { name: 'Menu utama' })
   await nav.getByRole('button', { name: 'Produk', exact: true }).click()
+  await page.getByRole('button', { name: 'Tambah Produk', exact: true }).click()
   const price = page.getByLabel('Harga jual', { exact: true })
   await expect(price).toHaveValue('')
   await price.pressSequentially('0015000')
   await expect(price).toHaveValue('15.000')
   await price.fill('0,50')
   await expect(price).toHaveValue('0,50')
+  await page.getByRole('button', { name: 'Tutup form produk', exact: true }).click()
   await page.locator('.pos-more > summary').click()
   await nav.getByRole('button', { name: 'Pembelian', exact: true }).click()
   await page.getByRole('button', { name: /Sembako.*BR-001.*Beras Ramos/ }).click()
@@ -390,15 +392,21 @@ for (const width of [320, 390, 768, 1440]) {
     await page.screenshot({ path: `test-results/mobile-sales-${width}.png`, fullPage: true })
     await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Produk', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Daftar Produk', exact: true })).toBeVisible()
-    if (width < 1024) {
-      await expect(page.getByLabel('Nama produk', { exact: true })).not.toBeVisible()
-      await page.getByRole('button', { name: 'Tambah Produk', exact: true }).click()
-      await expect(page.getByLabel('Nama produk', { exact: true })).toBeFocused()
-      await page.getByRole('button', { name: 'Tutup form' }).click()
-    }
-    await page.getByRole('button', { name: 'Edit Beras Ramos', exact: true }).click()
+    await expect(page.getByLabel('Nama produk', { exact: true })).not.toBeVisible()
+    await page.getByRole('button', { name: 'Tambah Produk', exact: true }).click()
+    await expect(page.getByRole('dialog', { name: 'Tambah Produk', exact: true })).toBeVisible()
+    await expect(page.getByLabel('Nama produk', { exact: true })).toBeFocused()
+    await page.getByRole('button', { name: 'Tutup form produk', exact: true }).click()
+    const productRow = page.getByRole('button', { name: 'Edit Beras Ramos', exact: true })
+    await productRow.getByText('Beras Ramos', { exact: true }).click()
+    await expect(page.getByRole('dialog', { name: 'Edit Produk', exact: true })).toBeVisible()
     await expect(page.getByLabel('Nama produk', { exact: true })).toHaveValue('Beras Ramos')
-    if (width < 1024) await page.getByRole('button', { name: 'Tutup form' }).click()
+    await expect(productRow.locator('svg')).toHaveCount(0)
+    await noOverflow()
+    await page.screenshot({ path: `test-results/product-editor-${width}.png` })
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(productRow).toBeFocused()
     await noOverflow()
     await page.screenshot({ path: `test-results/mobile-products-${width}.png`, fullPage: true })
     const transaction = { nama_kasir: 'Siti Kasir', id: 44, nomor: 'BILL-20261102-000044', tanggal: '2026-11-02T03:00:00Z', tanggal_pendapatan: '2026-11-01', status: 'SELESAI', metode_pembayaran_id: 1, total_tagihan: '10000', diskon_transaksi: '0', biaya_pembayaran: '0', jumlah_dibayar: '20000', kembalian: '10000', detail: [{ id: 1, nama_produk: 'Beras Ramos', jumlah: '1', harga_jual: '10000', diskon: '0', subtotal: '10000' }] }
@@ -447,7 +455,7 @@ for (const width of [320, 1440]) {
     await expect(date).toHaveAttribute('data-picker-opens', '5')
     await date.fill('2026-10-01')
     await expect(control).toContainText('1 Oktober 2026')
-    await expect(date).toHaveAttribute('max', jakartaDay())
+    expect(await date.getAttribute('max')).toBeNull()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await page.screenshot({ path: `test-results/operational-date-${width}.png` })
   })
@@ -583,3 +591,104 @@ test('tab mobile mendukung keyboard, pembayaran, dan pergantian ukuran layar', a
   await page.getByRole('button', { name: 'Selesaikan Pembayaran', exact: true }).click()
   await expect(page.getByRole('dialog')).toContainText('PEMBAYARAN BERHASIL')
 })
+
+
+for (const width of [390, 1440]) {
+  test(`tanggal operasional masa depan bisa disimpan ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 })
+    const calls = await mockAPI(page)
+    const date = page.getByLabel('Tanggal operasional (WIB)', { exact: true })
+    expect(await date.getAttribute('max')).toBeNull()
+    await date.fill('2099-12-31')
+    await expect(date).toHaveAttribute('aria-invalid', 'false')
+    await page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }).click()
+    if (width < 1024) await page.getByRole('tablist', { name: 'Bagian penjualan' }).getByRole('tab', { name: /Keranjang/ }).click()
+    await page.getByRole('button', { name: /^Bayar/ }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toContainText('31 Desember 2099')
+    await dialog.getByLabel('Print struk setelah pembayaran').uncheck()
+    await page.getByLabel('Uang diterima').fill('20000')
+    await page.getByRole('button', { name: 'Selesaikan Pembayaran', exact: true }).click()
+    await expect(dialog).toContainText('PEMBAYARAN BERHASIL')
+    expect(calls.find(call => call.path === '/penjualan')?.body.tanggal_pendapatan).toBe('2099-12-31')
+  })
+}
+
+
+for (const width of [390, 1440]) {
+  test(`edit produk melalui baris dan simpan modal ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 })
+    await mockAPI(page)
+    await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Produk', exact: true }).click()
+    const row = page.getByRole('button', { name: 'Edit Beras Ramos', exact: true })
+    await row.focus()
+    await page.keyboard.press('Enter')
+    const dialog = page.getByRole('dialog', { name: 'Edit Produk', exact: true })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByLabel('Nama produk', { exact: true })).toBeFocused()
+    await dialog.getByLabel('Harga jual', { exact: true }).fill('12000')
+    await dialog.getByRole('button', { name: 'Kategori', exact: true }).click()
+    await page.getByRole('option', { name: 'Sembako', exact: true }).click()
+    let attempts = 0
+    const payloads: Record<string, unknown>[] = []
+    await page.route('http://api.test/api/v1/produk/1', async route => {
+      if (route.request().method() === 'OPTIONS') { await route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'PUT,OPTIONS' } }); return }
+      payloads.push(route.request().postDataJSON())
+      attempts++
+      await route.fulfill({ status: attempts === 1 ? 400 : 200, json: attempts === 1 ? { error: { message: 'Produk belum dapat disimpan' } } : { data: { id: 1, ...payloads.at(-1) } }, headers: { 'access-control-allow-origin': '*' } })
+    })
+    await dialog.getByRole('button', { name: 'Simpan Produk', exact: true }).click()
+    await expect(dialog.getByRole('alert')).toContainText('Produk belum dapat disimpan')
+    await expect(dialog.getByLabel('Harga jual', { exact: true })).toHaveValue('12.000')
+    await dialog.getByRole('button', { name: 'Simpan Produk', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(page.getByRole('status')).toContainText('Produk tersimpan')
+    expect(payloads.at(-1)).toMatchObject({ nama: 'Beras Ramos', harga_jual: '12000', kategori_id: 1, satuan_id: 1 })
+  })
+}
+
+test('kasir melihat daftar produk tanpa akses modal edit', async ({ page }) => {
+  await mockAPI(page, 'KASIR')
+  await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Produk', exact: true }).click()
+  await expect(page.locator('.product-list-row')).toContainText('Beras Ramos')
+  await expect(page.getByRole('button', { name: 'Edit Beras Ramos', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Tambah Produk', exact: true })).toHaveCount(0)
+  await page.locator('.product-list-row').click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+})
+
+for (const width of [320, 1440]) {
+  test(`pemilih tanggal riwayat seragam dengan tanggal operasional ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 })
+    await page.addInitScript(() => {
+      Object.defineProperty(HTMLInputElement.prototype, 'showPicker', { configurable: true, value() {
+        this.dataset.pickerOpens = String(Number(this.dataset.pickerOpens ?? 0) + 1)
+      } })
+    })
+    await mockAPI(page)
+    await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Riwayat', exact: true }).click()
+    const date = page.getByLabel('Tanggal penjualan (WIB)', { exact: true })
+    await expect(date).toBeEnabled()
+    const control = page.locator('.history-date-control')
+    const bounds = (await control.boundingBox())!
+    for (const [index, position] of [{ x: 5, y: 5 }, { x: bounds.width / 2, y: bounds.height / 2 }, { x: bounds.width - 5, y: bounds.height - 5 }].entries()) {
+      await control.click({ position })
+      await expect(date).toHaveAttribute('data-picker-opens', String(index + 1))
+      await page.keyboard.press('Escape')
+    }
+    await date.press('Enter')
+    await expect(date).toHaveAttribute('data-picker-opens', '4')
+    await date.press('Space')
+    await expect(date).toHaveAttribute('data-picker-opens', '5')
+    const request = page.waitForRequest(request => request.method() === 'GET' && new URL(request.url()).searchParams.get('tanggal') === '2099-12-31')
+    await date.fill('2099-12-31')
+    await request
+    await expect(control).toContainText('31 Desember 2099')
+    await expect(date).toBeEnabled()
+    expect(await date.getAttribute('max')).toBeNull()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await page.screenshot({ path: `test-results/history-date-control-${width}.png`, fullPage: true })
+    await page.getByRole('button', { name: 'Hari ini', exact: true }).click()
+    await expect(date).toHaveValue(jakartaDay())
+  })
+}

@@ -483,20 +483,7 @@
   }
 }
 
-/* Form produk tetap terjangkau saat menggulir daftar di desktop. */
-@media (min-width: 1024px) {
-  .product-editor {
-    position: sticky;
-    top: 20px;
-    align-self: start;
-    min-width: 0;
-    max-height: calc(100dvh - 40px);
-    overflow-y: auto;
-    scrollbar-width: thin;
-    scrollbar-color: var(--input) transparent;
-    padding: 2px;
-  }
-}
+
 
 .sale-draft-tabs { display: flex; flex-shrink: 0; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: color-mix(in srgb,var(--muted) 50%,var(--card)); }
 .sale-draft-tab { display: flex; align-items: center; justify-content: center; gap: 0; min-height: 34px; padding: 0; border: 1px solid transparent; border-radius: 9px; color: var(--muted-foreground); font-size: 13px; font-weight: 600; cursor: pointer; }
@@ -554,11 +541,6 @@
 .product-list-row > div:first-child { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 @media (max-width:1023px) {
   .products-page,.history-page { padding: 16px; gap: 16px; }
-  .products-page .product-list { grid-row: 1; }
-  .products-page .product-editor { display: none; scroll-margin-top: 16px; }
-  .products-page .product-editor[data-open="true"] { display: block; grid-row: 1; }
-  .products-page:has(.product-editor[data-open="true"]) .product-list { grid-row: 2; }
-  .product-editor-close { margin-left: auto; display: flex; }
   .sale-layout .sale-catalog { order: -1; }
   .sale-catalog,.sale-cart { scroll-margin-top: 76px; }
   .sale-catalog .sale-products-grid { height: 42dvh; min-height: 240px; max-height: 460px; }
@@ -646,6 +628,13 @@
   .pos-operating-icon { right: 10px; width: 18px; height: 18px; }
 }
 @media (prefers-reduced-motion:reduce) { .pos-operating-date { transition: none; } }
+
+.history-filter .history-date-control { min-width: 0; width: 220px; }
+.history-filter > button { min-height: 52px; }
+@media (max-width:600px) {
+  .history-filter .history-date-control { width: 100%; }
+  .history-filter > button { min-height: 48px; }
+}
 
 /* Keep the drawer and overflow menu together on every screen size. */
 .pos-quick-actions { display: flex; flex-shrink: 0; align-items: center; border: 1px solid var(--border); border-radius: 13px; background: var(--card); }
@@ -740,4 +729,30 @@
   .purchase-page[data-mobile-panel="products"] + .purchase-inventory { display: none; }
   .sale-catalog .sale-products-grid { height: 60dvh; max-height: none; }
   .purchase-products { max-height: 60dvh; }
+}
+
+
+/* Product rows open a shared editor dialog on every screen size. */
+.product-list-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; padding: 18px 4px; text-align: left; }
+.product-row-info { display: grid; gap: 5px; min-width: 0; overflow-wrap: anywhere; }
+.product-row-price { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.product-row-button { cursor: pointer; border-radius: 10px; }
+.product-row-button:hover { background: var(--accent); }
+.product-row-button:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.product-row-button:disabled { cursor: wait; opacity: .6; }
+.product-editor-dialog { width: min(560px,calc(100vw - 32px)); max-height: calc(100dvh - 32px); margin: auto; padding: 0; border: 1px solid var(--border); border-radius: 24px; background: var(--card); color: var(--foreground); overflow-y: auto; }
+.product-editor-dialog::backdrop { background: #0008; }
+.product-dialog-heading { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 24px; border-bottom: 1px solid var(--border); background: var(--card); }
+.product-dialog-heading h2 { font-size: 22px; font-weight: 750; }
+.product-dialog-heading button { min-width: 44px; min-height: 44px; }
+.product-dialog-body { padding: 24px; }
+.product-dialog-body fieldset { min-width: 0; }
+.product-dialog-body label:has(input[type="checkbox"]) { align-items: center; min-height: 44px; }
+.product-dialog-body input[type="checkbox"] { width: 18px; height: 18px; }
+@media (max-width:600px) {
+  .product-list-row { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .product-row-price { font-size: 18px; }
+  .product-editor-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); border-radius: 18px; }
+  .product-dialog-heading { padding: 16px; }
+  .product-dialog-body { padding: 16px; }
 }
