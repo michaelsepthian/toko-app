@@ -1,4 +1,5 @@
 'use client'
+import { ProductLoading } from './product-loading'
 import { SearchSelect } from './search-select'
 import { useEffect, useRef, useState } from 'react'
 import { Plus, X } from 'lucide-react'
@@ -9,7 +10,7 @@ import { money, validNumber } from '@/lib/pos'
 import { ErrorBox, Field, inputClass, Panel, RupiahField } from './common'
 
 type Props = { data: Data; refresh: () => Promise<void> }
-export function Products({ data, refresh, owner }: Props & { owner: boolean }) {
+export function Products({ data, refresh, owner, loading = false }: Props & { owner: boolean; loading?: boolean }) {
   const [editorOpen, setEditorOpen] = useState(false)
   const editorRef = useRef<HTMLDialogElement>(null)
   const empty = { nama: '', sku: '', barcode: '', harga_jual: '', stok_minimum: '0', kategori_id: '', satuan_id: '', aktif: true, is_favorit: false }
@@ -39,10 +40,10 @@ export function Products({ data, refresh, owner }: Props & { owner: boolean }) {
       } catch (err) { setError(message(err)) } finally { setBusy(false) }
     }}><fieldset disabled={busy} className="space-y-3"><Field label="Nama produk" value={form.nama} onChange={nama => setForm({ ...form, nama })} required /><Field label="SKU" value={form.sku} onChange={sku => setForm({ ...form, sku })} required /><Field label="Barcode (opsional)" value={form.barcode} onChange={barcode => setForm({ ...form, barcode })} /><RupiahField label="Harga jual" value={form.harga_jual} onChange={harga_jual => setForm({ ...form, harga_jual })} required /><div className="block text-sm font-semibold"><span>Kategori</span><SearchSelect className={inputClass} required value={form.kategori_id} onValueChange={value => setForm({ ...form, kategori_id: value })} aria-label="Kategori"><option value="">Pilih kategori</option>{data.categories.map(c => <option key={c.id} value={c.id}>{c.nama}</option>)}</SearchSelect></div><div className="block text-sm font-semibold"><span>Satuan</span><SearchSelect className={inputClass} required value={form.satuan_id} onValueChange={value => setForm({ ...form, satuan_id: value })} aria-label="Satuan"><option value="">Pilih satuan</option>{data.units.map(c => <option key={c.id} value={c.id}>{c.nama}</option>)}</SearchSelect></div><label className="flex gap-2"><input type="checkbox" checked={form.aktif} onChange={e => setForm({ ...form, aktif: e.target.checked })} />Produk aktif</label><label className="flex gap-2"><input type="checkbox" checked={form.is_favorit} onChange={e => setForm({ ...form, is_favorit: e.target.checked })} />Favorit toko (semua pengguna)</label><div className="flex flex-col gap-2"><Button type="submit" className="h-12 w-full" disabled={busy}>{busy ? 'Menyimpan…' : 'Simpan Produk'}</Button>{editing && <Button type="button" className="h-12 w-full" variant="outline" disabled={busy} onClick={() => setEditorOpen(false)}>Batal Edit</Button>}</div></fieldset></form></div>
     </dialog>}
-    <div className="product-list min-w-0">{notice && <p role="status" className="mb-3 rounded-xl border bg-card p-3 text-sm text-primary">{notice}</p>}<div className="product-list-toolbar"><div><h1>Produk</h1><p>{data.products.length} produk</p></div>{owner && <Button disabled={busy} onClick={() => { setNotice(''); setError(''); setForm(empty); setEditing(null); setEditorOpen(true) }}><Plus />Tambah Produk</Button>}</div><Panel title="Daftar Produk" subtitle={`${products.length} produk ditampilkan`}><Field label="Cari daftar produk" value={query} onChange={setQuery} /><div className="divide-y">{products.map(p => {
+    <div className="product-list min-w-0">{notice && <p role="status" className="mb-3 rounded-xl border bg-card p-3 text-sm text-primary">{notice}</p>}<div className="product-list-toolbar"><div><h1>Produk</h1><p>{data.products.length} produk</p></div>{owner && <Button disabled={busy} onClick={() => { setNotice(''); setError(''); setForm(empty); setEditing(null); setEditorOpen(true) }}><Plus />Tambah Produk</Button>}</div><Panel title="Daftar Produk" subtitle={`${products.length} produk ditampilkan`}><div className="product-search-bar"><Field label="Cari daftar produk" value={query} onChange={setQuery} /></div><div className="divide-y" aria-busy={loading}>{loading && <ProductLoading />}{(!loading ? products : []).map(p => {
       const content = <><span className="product-row-info"><strong>{p.nama} {p.is_favorit && <span className="text-amber-500" title="Favorit toko">★</span>} {!p.aktif && '(nonaktif)'}</strong><span className="text-sm text-muted-foreground">{p.sku} · {p.barcode ?? 'Tanpa barcode'}</span></span><strong className="product-row-price">{money(p.harga_jual)}</strong></>
       return owner ? <button key={p.id} type="button" className="product-list-row product-row-button" aria-label={`Edit ${p.nama}`} aria-haspopup="dialog" disabled={busy} onClick={() => edit(p)}>{content}</button> : <article key={p.id} className="product-list-row">{content}</article>
-    })}{!products.length && <p className="py-8 text-muted-foreground">{query ? 'Produk tidak ditemukan.' : 'Belum ada produk.'}</p>}</div></Panel></div>
+    })}{!loading && !products.length && <p className="py-8 text-muted-foreground">{query ? 'Produk tidak ditemukan.' : 'Belum ada produk.'}</p>}</div></Panel></div>
   </div>
 }
 

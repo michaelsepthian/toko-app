@@ -21,9 +21,9 @@ import { SearchSelect } from './search-select'
 import { MobileCartTabs, type MobileCartPanel } from './mobile-cart-tabs'
 import { parseProductOrder, productSortOptions, sortProducts, type ProductOrderSettings, type ProductPopularity, type ProductSort } from '@/lib/product-sort'
 
-type Props = { user: User; data: Data; active: boolean; operationalDateHost: HTMLDivElement | null; onSaved: (sale: Transaction, purchase: boolean, print: boolean) => Promise<void>; onReprint: (sale: Transaction) => Promise<void>; onProductUpdated: (product: Product) => void }
+type Props = { loading?: boolean; user: User; data: Data; active: boolean; operationalDateHost: HTMLDivElement | null; onSaved: (sale: Transaction, purchase: boolean, print: boolean) => Promise<void>; onReprint: (sale: Transaction) => Promise<void>; onProductUpdated: (product: Product) => void }
 
-export function SaleCheckout({ user, data, active, operationalDateHost, onSaved, onReprint, onProductUpdated }: Props) {
+export function SaleCheckout({ loading = false, user, data, active, operationalDateHost, onSaved, onReprint, onProductUpdated }: Props) {
   const drafts = useSaleDrafts(user.id)
   const { cart, methodID, paid, reference, print } = drafts.draft
   const setCart = (cart: CartLine[]) => drafts.update({ cart })
@@ -402,11 +402,14 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
           }
           if (event.key === 'Escape') { event.preventDefault(); setQuery(''); setError('') }
         }} /><Barcode /></form>
+        <details className="sale-product-options"><summary>Pengaturan produk</summary>
         <div className="sale-sort-toolbar"><span>Urutkan produk</span><SearchSelect aria-label="Urutan produk penjualan" value={order.sort} disabled={locked} className="sale-sort-trigger" onValueChange={value => setOrder(previous => ({ ...previous, sort: value as ProductSort }))}>{productSortOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</SearchSelect><label className="sale-favorites-filter"><input type="checkbox" checked={order.favoritesFirst} disabled={locked} onChange={event => setOrder(previous => ({ ...previous, favoritesFirst: event.target.checked }))} />Utamakan favorit</label><button type="button" className="sale-sort-refresh" disabled={popularityLoading || locked} onClick={() => setPopularityRevision(value => value + 1)}>{popularityLoading ? 'Memuat…' : 'Perbarui terlaris'}</button></div>
-        {favoriteBusyID !== null && <span role="status" className="sr-only">Menyimpan favorit produk…</span>}
         {popularityError && <p className="sale-sort-note" role="status">Data terlaris belum berhasil dimuat. Favorit tetap bisa diatur. Klik Perbarui terlaris untuk mencoba lagi.</p>}
-        <div className="sale-catalog-tools"><details className="sale-shortcuts"><summary>Shortcut keyboard</summary><p className="sale-key-hint"><kbd>↑</kbd><kbd>↓</kbd> pilih · <kbd>Enter</kbd> tambah · <kbd>F3</kbd> jumlah · <kbd>F4</kbd> tunai · <kbd>F5</kbd> QRIS · <kbd>F6</kbd> debit · <kbd>F9</kbd> kosongkan · <kbd>F10</kbd> buka laci · <kbd>Alt 1–9</kbd> pindah transaksi</p></details><span className="sale-result-count">{filtered.length.toLocaleString('id-ID')} produk</span></div>
-      </div><SaleCatalog products={filtered} categories={categories} highlight={highlight} locked={locked} active={active} onHighlight={setHighlight} onAdd={add} favorites={favorites} onToggleFavorite={toggleFavorite} favoriteEditable={user.peran === 'PEMILIK'} favoriteBusyID={favoriteBusyID} /></section>
+        <p className="sale-result-count">{filtered.length.toLocaleString('id-ID')} produk</p>
+        </details>
+        {favoriteBusyID !== null && <span role="status" className="sr-only">Menyimpan favorit produk…</span>}
+        <div className="sale-catalog-tools"><details className="sale-shortcuts"><summary>Shortcut keyboard</summary><p className="sale-key-hint"><kbd>↑</kbd><kbd>↓</kbd> pilih · <kbd>Enter</kbd> tambah · <kbd>F3</kbd> jumlah · <kbd>F4</kbd> tunai · <kbd>F5</kbd> QRIS · <kbd>F6</kbd> debit · <kbd>F9</kbd> kosongkan · <kbd>F10</kbd> buka laci · <kbd>Alt 1–9</kbd> pindah transaksi</p></details></div>
+      </div><SaleCatalog loading={loading} products={filtered} categories={categories} highlight={highlight} locked={locked} active={active} onHighlight={setHighlight} onAdd={add} favorites={favorites} onToggleFavorite={toggleFavorite} favoriteEditable={user.peran === 'PEMILIK'} favoriteBusyID={favoriteBusyID} /></section>
     </SaleLayout>
 
     {modal && active && <div className="sale-modal-backdrop"><section ref={dialogRef} className="sale-payment-dialog" tabIndex={-1} role="dialog" aria-modal="true" aria-busy={paymentStage === 'saving'} aria-labelledby="sale-payment-title">

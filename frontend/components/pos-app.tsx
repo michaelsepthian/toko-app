@@ -140,10 +140,10 @@ function Workspace({ user }: { user: User }) {
       {error && <div className="pos-error-banner flex items-center gap-2"><div className="flex-1"><ErrorBox>{error}</ErrorBox></div><Button variant="ghost" aria-label="Tutup pesan kesalahan" onClick={() => setError('')}><X /></Button></div>}
     </div>
     {notice && <div role="status" className="pos-toast"><span>{notice}</span><button aria-label="Tutup pemberitahuan" onClick={() => setNotice('')}><X className="size-4" /></button></div>}
-    <SaleCheckout user={user} data={data} active={view === 'cashier'} operationalDateHost={operationalDateHost} onSaved={saved} onReprint={print} onProductUpdated={product => setData(previous => ({ ...previous, products: previous.products.map(row => row.id === product.id ? product : row) }))} />
-    {owner && <Checkout user={user} data={data} purchase active={view === 'purchases'} onSaved={saved} />}
+    <SaleCheckout loading={loading} user={user} data={data} active={view === 'cashier'} operationalDateHost={operationalDateHost} onSaved={saved} onReprint={print} onProductUpdated={product => setData(previous => ({ ...previous, products: previous.products.map(row => row.id === product.id ? product : row) }))} />
+    {owner && <Checkout loading={loading} user={user} data={data} purchase active={view === 'purchases'} onSaved={saved} />}
     {view === 'purchases' && owner && <Inventory data={data} refresh={refreshStocks} />}
-    {view === 'products' && <Products data={data} refresh={refresh} owner={owner} />}
+    {view === 'products' && <Products loading={loading} data={data} refresh={refresh} owner={owner} />}
     {view === 'history' && <History data={data} owner={owner} refresh={refresh} print={print} storeName={devices.storeName} userID={user.id} />}
     {view === 'masters' && owner && <Masters data={data} refresh={refresh} />}
     {view === 'devices' && owner && <Devices settings={devices} onChange={setDevices} />}

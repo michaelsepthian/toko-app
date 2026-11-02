@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import { jakartaDay } from '../../lib/history-date'
 
-async function mockAPI(page: Page, role = 'PEMILIK', timeoutOnce = false, stock = '10') {
+async function mockAPI(page: Page, role = 'PEMILIK', timeoutOnce = false, stock = '10', productCount = 1) {
   const calls: { path: string; body: Record<string, unknown> }[] = []
   const product = { id: 1, nama: 'Beras Ramos', sku: 'BR-001', barcode: '0012345678901', harga_jual: '10000', stok_minimum: '2', kategori_id: 1, satuan_id: 1, aktif: true }
   const methods = [
@@ -9,7 +9,7 @@ async function mockAPI(page: Page, role = 'PEMILIK', timeoutOnce = false, stock 
     { id: 2, nama: 'QRIS', jenis: 'QRIS', tarif_persen: '0.7', tarif_tetap: '0', penanggung_biaya: 'PELANGGAN', aktif: true, untuk_penjualan: true, untuk_pembelian: false },
     { id: 3, nama: 'Transfer Supplier', jenis: 'TRANSFER', tarif_persen: '0', tarif_tetap: '2500', penanggung_biaya: 'TOKO', aktif: true, untuk_penjualan: false, untuk_pembelian: true },
   ]
-  const products = [product]
+  const products = Array.from({ length: productCount }, (_, index) => ({ ...product, id: index + 1, ...(index ? { nama: `Produk Uji ${index + 1}`, sku: `TEST-${index + 1}`, barcode: String(1000000000000 + index) } : {}) }))
   let version = 1
   let dropped = false
   const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization,content-type', 'access-control-allow-methods': 'GET,POST,PUT,OPTIONS' }
@@ -690,5 +690,125 @@ for (const width of [320, 1440]) {
     await page.screenshot({ path: `test-results/history-date-control-${width}.png`, fullPage: true })
     await page.getByRole('button', { name: 'Hari ini', exact: true }).click()
     await expect(date).toHaveValue(jakartaDay())
+  })
+}
+
+for (const width of [320, 390]) {
+  test(`search produk tetap terlihat saat scroll mobile ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 620 })
+    await mockAPI(page, 'PEMILIK', false, '10', 100)
+    const saleSearch = page.getByLabel('Cari atau scan produk penjualan', { exact: true })
+    await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight))
+    const visibleSearch = async (selector: string, minimumTop: number) => {
+      await expect.poll(async () => {
+        const bounds = (await page.locator(selector).boundingBox())!
+        return bounds.y >= minimumTop - 1 && bounds.y + bounds.height <= 620
+      }).toBe(true)
+    }
+    await visibleSearch('.sale-search', 65)
+    await page.locator('.sale-virtual-catalog').evaluate(element => { element.scrollTop = 1800 })
+    await visibleSearch('.sale-search', 65)
+    await saleSearch.fill('Beras')
+    await expect(page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true })).toBeVisible()
+    await page.screenshot({ path: `test-results/sticky-sales-search-${width}.png` })
+    await page.evaluate(() => scrollTo(0, 0))
+    await page.getByLabel('Menu lainnya', { exact: true }).click()
+    await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Pembelian', exact: true }).click()
+    await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight))
+    await visibleSearch('.purchase-search-area form', 65)
+    await page.locator('.purchase-products').evaluate(element => { element.scrollTop = 1800 })
+    await visibleSearch('.purchase-search-area form', 65)
+    await page.getByLabel('Cari atau scan produk pembelian', { exact: true }).fill('Beras')
+    await expect(page.locator('.purchase-products').getByRole('button', { name: /Beras Ramos/ })).toBeVisible()
+    await page.screenshot({ path: `test-results/sticky-purchase-search-${width}.png` })
+    await page.evaluate(() => scrollTo(0, 0))
+    await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Produk', exact: true }).click()
+    await page.evaluate(() => scrollTo(0, 1800))
+    await visibleSearch('.product-search-bar', 0)
+    expect((await page.locator('.product-search-bar').boundingBox())!.y).toBeLessThanOrEqual(1)
+    await page.screenshot({ path: `test-results/sticky-product-search-${width}.png` })
+    await page.getByLabel('Cari daftar produk', { exact: true }).fill('Beras')
+    await expect(page.locator('.product-list-row')).toHaveCount(1)
+    await expect(page.locator('.product-list-row')).toContainText('Beras Ramos')
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  })
+}
+
+for (const width of [390, 1440]) {
+  test(`loading daftar produk dan favorit terlihat ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 })
+    const initialResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/master-data')
+    await mockAPI(page)
+    const initial = await (await initialResponse).json()
+    await expect(page.getByRole('button', { name: 'Urutan produk penjualan', exact: true })).toBeHidden()
+    await expect(page.getByLabel('Utamakan favorit', { exact: true })).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Perbarui terlaris', exact: true })).toBeHidden()
+    await expect(page.locator('.sale-result-count')).toBeHidden()
+    const options = page.locator('.sale-product-options')
+    await options.locator('summary').click()
+    const sort = page.getByRole('button', { name: 'Urutan produk penjualan', exact: true })
+    await expect(sort).toBeVisible()
+    await sort.click()
+    await page.getByRole('option', { name: 'Nama A–Z', exact: true }).click()
+    await expect(sort).toContainText('Nama A–Z')
+    await page.getByLabel('Utamakan favorit', { exact: true }).check()
+    await expect(page.getByRole('button', { name: 'Perbarui terlaris', exact: true })).toBeVisible()
+    await expect(options.locator('.sale-result-count')).toContainText('1 produk')
+    await options.locator('summary').click()
+    await expect(sort).toBeHidden()
+    await options.locator('summary').click()
+    await expect(sort).toContainText('Nama A–Z')
+    await expect(page.getByLabel('Utamakan favorit', { exact: true })).toBeChecked()
+    await options.locator('summary').click()
+    const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET,PUT,OPTIONS' }
+    let releaseMaster!: () => void
+    const masterGate = new Promise<void>(resolve => { releaseMaster = resolve })
+    await page.route(/\/api\/v1\/master-data(?:\?refresh=true)?$/, async route => {
+      if (route.request().method() === 'OPTIONS') { await route.fulfill({ status: 204, headers: cors }); return }
+      await masterGate
+      await route.fulfill({ json: initial, headers: cors })
+    })
+    await page.getByLabel('Menu lainnya', { exact: true }).click()
+    await page.getByRole('button', { name: 'Muat ulang data', exact: true }).click()
+    await expect(page.locator('.sale-catalog').getByRole('status', { name: 'Memuat daftar produk' })).toBeVisible()
+    await expect(page.locator('.sale-no-products')).toHaveCount(0)
+    await page.screenshot({ path: `test-results/product-loading-${width}.png` })
+    const nav = page.getByRole('navigation', { name: 'Menu utama' })
+    await nav.getByRole('button', { name: 'Produk', exact: true }).click()
+    await expect(page.locator('.product-list').getByRole('status', { name: 'Memuat daftar produk' })).toBeVisible()
+    await expect(page.locator('.product-list-row')).toHaveCount(0)
+    await page.getByLabel('Menu lainnya', { exact: true }).click()
+    await nav.getByRole('button', { name: 'Pembelian', exact: true }).click()
+    await expect(page.locator('.purchase-products').getByRole('status', { name: 'Memuat daftar produk' })).toBeVisible()
+    releaseMaster()
+    await expect(page.locator('.purchase-products .product-loading')).toHaveCount(0)
+    await nav.getByRole('button', { name: 'Penjualan', exact: true }).click()
+    let releaseFavorite!: () => void
+    let favoriteGate = new Promise<void>(resolve => { releaseFavorite = resolve })
+    let fail = false
+    await page.route('http://api.test/api/v1/produk/1/favorit', async route => {
+      if (route.request().method() === 'OPTIONS') { await route.fulfill({ status: 204, headers: cors }); return }
+      await favoriteGate
+      if (!fail) initial.data.products[0].is_favorit = true
+      await route.fulfill({ status: fail ? 500 : 200, json: fail ? { error: { message: 'Favorit belum tersimpan' } } : { data: { ...initial.data.products[0], is_favorit: true } }, headers: cors })
+    })
+    await page.getByRole('button', { name: 'Tandai favorit Beras Ramos', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Menyimpan favorit Beras Ramos', exact: true })).toHaveAttribute('aria-busy', 'true')
+    await expect(page.locator('.product-favorite-progress')).toBeVisible()
+    expect(await page.locator('.product-favorite-progress svg').evaluate(element => getComputedStyle(element).animationName)).toBe('product-loading-spin')
+    await page.screenshot({ path: `test-results/favorite-loading-${width}.png` })
+    releaseFavorite()
+    const favorite = page.getByRole('button', { name: 'Hapus favorit Beras Ramos', exact: true })
+    await expect(favorite).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.locator('.product-favorite-progress')).toHaveCount(0)
+    fail = true
+    favoriteGate = new Promise<void>(resolve => { releaseFavorite = resolve })
+    await favorite.click()
+    await expect(page.locator('.product-favorite-progress')).toBeVisible()
+    releaseFavorite()
+    await expect(page.locator('.sale-page').getByRole('alert')).toContainText('Favorit belum tersimpan')
+    await expect(favorite).toHaveAttribute('aria-pressed', 'true')
+    await expect(favorite).toBeEnabled()
+    await expect(page.locator('.product-favorite-progress')).toHaveCount(0)
   })
 }
