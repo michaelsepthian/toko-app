@@ -6,6 +6,7 @@ import type { Product } from '@/lib/types'
 import { ProductLoading } from './product-loading'
 import { money } from '@/lib/pos'
 import { catalogOffsets, catalogWindow } from '@/lib/catalog-window'
+import { productPageSize } from '@/lib/use-product-pages'
 
 type Props = { loading?: boolean; products: Product[]; categories: Map<number, string>; highlight: number; locked: boolean; active: boolean; onHighlight: (index: number) => void; onAdd: (product: Product) => void; favorites: ReadonlySet<number>; onToggleFavorite: (id: number) => void; favoriteEditable: boolean; favoriteBusyID: number | null }
 
@@ -37,9 +38,14 @@ function CatalogRows({ products, categories, highlight, locked, active, onHighli
 }
 
 function MeasuredRows({ products, categories, highlight, locked, active, onHighlight, onAdd, favorites, onToggleFavorite, favoriteEditable, favoriteBusyID, viewport, scroller, columns }: Props & { viewport: { width: number; height: number }; scroller: React.RefObject<HTMLDivElement | null>; columns: number }) {
+  const [limit, setLimit] = useState(productPageSize)
+  const visibleCount = Math.min(products.length, Math.max(limit, Math.ceil((highlight + 1) / productPageSize) * productPageSize))
+  useLayoutEffect(() => {
+    if (highlight >= limit) setLimit(Math.ceil((highlight + 1) / productPageSize) * productPageSize)
+  }, [highlight, limit])
   const [heights, setHeights] = useState<Map<number, number>>(() => new Map())
   const [top, setTop] = useState(0)
-  const offsets = useMemo(() => catalogOffsets(Math.ceil(products.length / columns), heights), [products.length, columns, heights])
+  const offsets = useMemo(() => catalogOffsets(Math.ceil(visibleCount / columns), heights), [visibleCount, columns, heights])
   const geometry = useRef(offsets)
   useLayoutEffect(() => { geometry.current = offsets }, [offsets])
   const measureRow = useCallback((row: number, height: number) => {
@@ -55,11 +61,14 @@ function MeasuredRows({ products, categories, highlight, locked, active, onHighl
     node.scrollTop = 0
     let frame = 0
     const onScroll = () => {
-      if (!frame) frame = requestAnimationFrame(() => { frame = 0; setTop(node.scrollTop) })
+      if (!frame) frame = requestAnimationFrame(() => {
+        frame = 0; setTop(node.scrollTop)
+        if (node.scrollHeight - node.scrollTop - node.clientHeight < 250) setLimit(current => Math.min(products.length, current + productPageSize))
+      })
     }
     node.addEventListener('scroll', onScroll, { passive: true })
     return () => { node.removeEventListener('scroll', onScroll); cancelAnimationFrame(frame) }
-  }, [scroller])
+  }, [scroller, products.length])
   useLayoutEffect(() => {
     const node = scroller.current
     if (!node || !active || !products.length) return
@@ -74,11 +83,12 @@ function MeasuredRows({ products, categories, highlight, locked, active, onHighl
 
   if (!products.length) return <div className="sale-empty sale-no-products"><Search /><strong>Produk tidak ditemukan</strong><p>Periksa nama, SKU, atau barcode produk.</p></div>
   const { start, end } = catalogWindow(offsets, Math.max(0, top - 14), viewport.height)
-  return <div className="sale-virtual-space" style={{ height: offsets.at(-1)! + 17 }}>
+  const hasMore = visibleCount < products.length
+  return <div className="sale-virtual-space" data-loaded-count={visibleCount} style={{ height: offsets.at(-1)! + 17 + (hasMore ? 48 : 0) }}>
     {Array.from({ length: end - start }, (_, offset) => {
       const row = start + offset
       return <MeasuredRow key={row} row={row} top={offsets[row] + 14} columns={columns} onMeasure={measureRow}>
-        {products.slice(row * columns, (row + 1) * columns).map((product, column) => {
+        {products.slice(row * columns, Math.min((row + 1) * columns, visibleCount)).map((product, column) => {
           const index = row * columns + column
           return <div className="sale-product-tile" data-favorite-busy={favoriteBusyID === product.id} key={product.id}><button type="button" disabled={locked || favoriteBusyID === product.id} aria-label={`Tambah ${product.nama} ke keranjang`} data-highlighted={index === highlight} aria-current={index === highlight ? 'true' : undefined} onFocus={() => onHighlight(index)} onMouseEnter={() => onHighlight(index)} className="sale-product" onClick={() => onAdd(product)}>
             <div className="sale-product-top"><span>{categories.get(product.kategori_id) ?? 'Produk'}</span></div><h3>{product.nama}</h3><strong>{money(product.harga_jual)}</strong>
@@ -86,6 +96,7 @@ function MeasuredRows({ products, categories, highlight, locked, active, onHighl
         })}
       </MeasuredRow>
     })}
+    {hasMore && <div className="product-page-end sale-page-end" style={{ top: offsets.at(-1)! + 14 }}>Gulir untuk memuat 50 produk berikutnya</div>}
   </div>
 }
 

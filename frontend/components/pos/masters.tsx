@@ -1,7 +1,9 @@
 'use client'
+import { useProductPages } from '@/lib/use-product-pages'
+import { ProductPageEnd } from './product-page-end'
 import { ProductLoading } from './product-loading'
 import { SearchSelect } from './search-select'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { api, message } from '@/lib/api'
@@ -12,11 +14,13 @@ import { ErrorBox, Field, inputClass, Panel, RupiahField } from './common'
 type Props = { data: Data; refresh: () => Promise<void> }
 export function Products({ data, refresh, owner, loading = false }: Props & { owner: boolean; loading?: boolean }) {
   const [editorOpen, setEditorOpen] = useState(false)
+  const searchBarRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<HTMLDialogElement>(null)
   const empty = { nama: '', sku: '', barcode: '', harga_jual: '', stok_minimum: '0', kategori_id: '', satuan_id: '', aktif: true, is_favorit: false }
   const [form, setForm] = useState(empty); const [editing, setEditing] = useState<number | null>(null)
   const [query, setQuery] = useState('')
-  const products = data.products.filter(product => `${product.nama} ${product.sku} ${product.barcode ?? ''}`.toLowerCase().includes(query.trim().toLowerCase()))
+  const products = useMemo(() => data.products.filter(product => `${product.nama} ${product.sku} ${product.barcode ?? ''}`.toLowerCase().includes(query.trim().toLowerCase())), [data.products, query])
+  const { visibleProducts, endRef, hasMore } = useProductPages(products, !loading)
   const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('')
   function edit(p: Product) { setError(''); setEditorOpen(true); setEditing(p.id); setForm({ nama: p.nama, sku: p.sku, barcode: p.barcode ?? '', harga_jual: p.harga_jual.replace(/\.0+$/, ''), stok_minimum: p.stok_minimum, kategori_id: String(p.kategori_id), satuan_id: String(p.satuan_id), aktif: p.aktif, is_favorit: Boolean(p.is_favorit) }) }
   useEffect(() => {
@@ -40,10 +44,10 @@ export function Products({ data, refresh, owner, loading = false }: Props & { ow
       } catch (err) { setError(message(err)) } finally { setBusy(false) }
     }}><fieldset disabled={busy} className="space-y-3"><Field label="Nama produk" value={form.nama} onChange={nama => setForm({ ...form, nama })} required /><Field label="SKU" value={form.sku} onChange={sku => setForm({ ...form, sku })} required /><Field label="Barcode (opsional)" value={form.barcode} onChange={barcode => setForm({ ...form, barcode })} /><RupiahField label="Harga jual" value={form.harga_jual} onChange={harga_jual => setForm({ ...form, harga_jual })} required /><div className="block text-sm font-semibold"><span>Kategori</span><SearchSelect className={inputClass} required value={form.kategori_id} onValueChange={value => setForm({ ...form, kategori_id: value })} aria-label="Kategori"><option value="">Pilih kategori</option>{data.categories.map(c => <option key={c.id} value={c.id}>{c.nama}</option>)}</SearchSelect></div><div className="block text-sm font-semibold"><span>Satuan</span><SearchSelect className={inputClass} required value={form.satuan_id} onValueChange={value => setForm({ ...form, satuan_id: value })} aria-label="Satuan"><option value="">Pilih satuan</option>{data.units.map(c => <option key={c.id} value={c.id}>{c.nama}</option>)}</SearchSelect></div><label className="flex gap-2"><input type="checkbox" checked={form.aktif} onChange={e => setForm({ ...form, aktif: e.target.checked })} />Produk aktif</label><label className="flex gap-2"><input type="checkbox" checked={form.is_favorit} onChange={e => setForm({ ...form, is_favorit: e.target.checked })} />Favorit toko (semua pengguna)</label><div className="flex flex-col gap-2"><Button type="submit" className="h-12 w-full" disabled={busy}>{busy ? 'Menyimpan…' : 'Simpan Produk'}</Button>{editing && <Button type="button" className="h-12 w-full" variant="outline" disabled={busy} onClick={() => setEditorOpen(false)}>Batal Edit</Button>}</div></fieldset></form></div>
     </dialog>}
-    <div className="product-list min-w-0">{notice && <p role="status" className="mb-3 rounded-xl border bg-card p-3 text-sm text-primary">{notice}</p>}<div className="product-list-toolbar"><div><h1>Produk</h1><p>{data.products.length} produk</p></div>{owner && <Button disabled={busy} onClick={() => { setNotice(''); setError(''); setForm(empty); setEditing(null); setEditorOpen(true) }}><Plus />Tambah Produk</Button>}</div><Panel title="Daftar Produk" subtitle={`${products.length} produk ditampilkan`}><div className="product-search-bar"><Field label="Cari daftar produk" value={query} onChange={setQuery} /></div><div className="divide-y" aria-busy={loading}>{loading && <ProductLoading />}{(!loading ? products : []).map(p => {
+    <div className="product-list min-w-0">{notice && <p role="status" className="mb-3 rounded-xl border bg-card p-3 text-sm text-primary">{notice}</p>}<div className="product-list-toolbar"><div><h1>Produk</h1><p>{data.products.length} produk</p></div>{owner && <Button disabled={busy} onClick={() => { setNotice(''); setError(''); setForm(empty); setEditing(null); setEditorOpen(true) }}><Plus />Tambah Produk</Button>}</div><Panel title="Daftar Produk" subtitle={loading ? 'Memuat produk…' : `${visibleProducts.length} dari ${products.length} produk ditampilkan`}><div ref={searchBarRef} className="product-search-bar"><Field label="Cari daftar produk" value={query} onChange={value => { setQuery(value); searchBarRef.current?.scrollIntoView({ block: 'start' }) }} /></div><div className="divide-y" aria-busy={loading}>{loading && <ProductLoading />}{(!loading ? visibleProducts : []).map(p => {
       const content = <><span className="product-row-info"><strong>{p.nama} {p.is_favorit && <span className="text-amber-500" title="Favorit toko">★</span>} {!p.aktif && '(nonaktif)'}</strong><span className="text-sm text-muted-foreground">{p.sku} · {p.barcode ?? 'Tanpa barcode'}</span></span><strong className="product-row-price">{money(p.harga_jual)}</strong></>
       return owner ? <button key={p.id} type="button" className="product-list-row product-row-button" aria-label={`Edit ${p.nama}`} aria-haspopup="dialog" disabled={busy} onClick={() => edit(p)}>{content}</button> : <article key={p.id} className="product-list-row">{content}</article>
-    })}{!loading && !products.length && <p className="py-8 text-muted-foreground">{query ? 'Produk tidak ditemukan.' : 'Belum ada produk.'}</p>}</div></Panel></div>
+    })}{!loading && hasMore && <ProductPageEnd endRef={endRef} />}{!loading && !products.length && <p className="py-8 text-muted-foreground">{query ? 'Produk tidak ditemukan.' : 'Belum ada produk.'}</p>}</div></Panel></div>
   </div>
 }
 
@@ -76,13 +80,16 @@ export function Inventory({ data, refresh }: Props) {
   const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('')
   const [stockID, setStockID] = useState(''); const [stockType, setStockType] = useState('AWAL'); const [change, setChange] = useState(''); const [reason, setReason] = useState('')
   const [query, setQuery] = useState('')
-  const products = data.products.filter(product => `${product.nama} ${product.sku} ${product.barcode ?? ''}`.toLowerCase().includes(query.trim().toLowerCase()))
+  const products = useMemo(() => data.products.filter(product => `${product.nama} ${product.sku} ${product.barcode ?? ''}`.toLowerCase().includes(query.trim().toLowerCase())), [data.products, query])
+  const { visibleProducts, endRef, hasMore } = useProductPages(products)
+  const stocks = useMemo(() => new Map(data.stocks.map(row => [row.id, row.stok])), [data.stocks])
+  const units = useMemo(() => new Map(data.units.map(row => [row.id, row.nama])), [data.units])
   return <div className="purchase-inventory mx-auto grid max-w-7xl gap-5 p-5 lg:grid-cols-[360px_1fr]">
     <div id="stock-adjustment" className="stock-adjustment space-y-3"><ErrorBox>{error}</ErrorBox>{notice && <p role="status">{notice}</p>}
     <Panel title="Stok Awal / Penyesuaian" subtitle="Pembelian baru dicatat lewat menu Pembelian."><form className="space-y-3" onSubmit={async e => { e.preventDefault(); if (busy) return; setBusy(true); setError(''); try { await api(`/produk/${stockID}/mutasi`, 'POST', { jenis: stockType, perubahan: change, catatan: reason }); setChange(''); setReason(''); setNotice('Mutasi stok tersimpan.'); await refresh() } catch (err) { setError(message(err)) } finally { setBusy(false) } }}><div className="block text-sm font-semibold"><span>Produk</span><SearchSelect className={inputClass} value={stockID} onValueChange={value => setStockID(value)} required aria-label="Produk"><option value="">Pilih produk</option>{data.products.filter(p => p.aktif).map(p => <option key={p.id} value={p.id}>{p.nama}</option>)}</SearchSelect></div><SearchSelect className={inputClass} aria-label="Jenis mutasi" value={stockType} onValueChange={value => setStockType(value)}><option value="AWAL">Stok awal (sekali per produk)</option><option value="PENYESUAIAN">Penyesuaian selisih stok</option></SearchSelect><Field label="Perubahan stok (contoh: 10 atau -2)" value={change} onChange={setChange} required /><Field label="Alasan" value={reason} onChange={setReason} required /><Button type="submit" disabled={busy}>Simpan Mutasi</Button></form></Panel>
     </div><div className="purchase-stock-list"><a className="master-add stock-adjustment-link" href="#stock-adjustment">Stok Awal / Penyesuaian</a><Panel title="Stok Produk" subtitle="Saldo stok terkini, termasuk stok negatif dari penjualan.">
       <Field label="Cari stok produk" value={query} onChange={setQuery} />
-      <div className="mt-3 divide-y">{products.map(product => <div key={product.id} className="flex items-center justify-between gap-3 py-3"><div><strong>{product.nama}</strong><p className="text-sm text-muted-foreground">{product.sku}</p></div><span className="font-semibold">{data.stocks.find(stock => stock.id === product.id)?.stok ?? '—'} {data.units.find(unit => unit.id === product.satuan_id)?.nama}</span></div>)}</div>
+      <div className="mt-3 divide-y">{visibleProducts.map(product => <div key={product.id} className="stock-list-row flex items-center justify-between gap-3 py-3"><div><strong>{product.nama}</strong><p className="text-sm text-muted-foreground">{product.sku}</p></div><span className="font-semibold">{stocks.get(product.id) ?? '—'} {units.get(product.satuan_id)}</span></div>)}{hasMore && <ProductPageEnd endRef={endRef} />}</div>
     </Panel></div>
   </div>
 }
