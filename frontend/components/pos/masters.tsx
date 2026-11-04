@@ -3,6 +3,7 @@ import { useProductPages } from '@/lib/use-product-pages'
 import { ProductPageEnd } from './product-page-end'
 import { ProductLoading } from './product-loading'
 import { SearchSelect } from './search-select'
+import { UsersMaster } from './users-master'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -53,7 +54,7 @@ export function Products({ data, refresh, owner, loading = false }: Props & { ow
 
 export function Masters({ data, refresh }: Props) {
   const [tab, setTab] = useState('simple')
-  return <div className="masters-page mx-auto max-w-6xl space-y-5 p-5"><nav className="master-tabs flex flex-wrap gap-2" aria-label="Data master">{[['simple','Kategori & Satuan'], ['sources','Tempat Beli / Sales'], ['payments','Metode Pembayaran']].map(([key,label]) => <Button key={key} aria-pressed={tab === key} variant={tab === key ? 'default' : 'outline'} onClick={() => setTab(key)}>{label}</Button>)}</nav>{tab === 'simple' && <div className="grid gap-5 md:grid-cols-2"><SimpleMaster kind="kategori" rows={data.categories} refresh={refresh} /><SimpleMaster kind="satuan" rows={data.units} refresh={refresh} /></div>}{tab === 'sources' && <Sources data={data} refresh={refresh} />}{tab === 'payments' && <Payments data={data} refresh={refresh} />}</div>
+  return <div className="masters-page mx-auto max-w-6xl space-y-5 p-5"><nav className="master-tabs flex flex-wrap gap-2" aria-label="Data master">{[['simple','Kategori & Satuan'], ['sources','Tempat Beli / Sales'], ['payments','Metode Pembayaran'], ['users','Pengguna']].map(([key,label]) => <Button key={key} aria-pressed={tab === key} variant={tab === key ? 'default' : 'outline'} onClick={() => setTab(key)}>{label}</Button>)}</nav>{tab === 'simple' && <div className="grid gap-5 md:grid-cols-2"><SimpleMaster kind="kategori" rows={data.categories} refresh={refresh} /><SimpleMaster kind="satuan" rows={data.units} refresh={refresh} /></div>}{tab === 'sources' && <Sources data={data} refresh={refresh} />}{tab === 'payments' && <Payments data={data} refresh={refresh} />}{tab === 'users' && <UsersMaster />}</div>
 }
 function SimpleMaster({ kind, rows, refresh }: { kind: string; rows: { id: number; nama: string }[]; refresh: () => Promise<void> }) {
   const [name, setName] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false)
