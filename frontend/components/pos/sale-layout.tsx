@@ -15,6 +15,8 @@ export function SaleLayout({ children }: { children: ReactNode }) {
   const [width, setWidth] = useState(initialWidth)
   const [limits, setLimits] = useState({ minimum: 20, maximum: 80 })
   const [resizing, setResizing] = useState(false)
+  // Constrain the rendered split, not the saved preference, while space is tight.
+  const panelWidth = clamp(width, limits.minimum, limits.maximum)
 
   useEffect(() => {
     try {
@@ -30,7 +32,6 @@ export function SaleLayout({ children }: { children: ReactNode }) {
       const minimum = Math.max(20, minimumPanel / available * 100)
       const maximum = 100 - minimum
       setLimits({ minimum, maximum })
-      setWidth(current => clamp(current, minimum, maximum))
     }
     const observer = new ResizeObserver(measure)
     observer.observe(element); measure()
@@ -52,17 +53,17 @@ export function SaleLayout({ children }: { children: ReactNode }) {
     if (available > 0) change((clientX - bounds.left - left - dividerWidth / 2) / available * 100)
   }
 
-  return <div ref={layout} className="sale-layout" data-resizing={resizing} style={{ '--sale-cart-share': `${width}fr`, '--sale-catalog-share': `${100 - width}fr` } as CSSProperties}>
+  return <div ref={layout} className="sale-layout" data-resizing={resizing} style={{ '--sale-cart-share': `${panelWidth}fr`, '--sale-catalog-share': `${100 - panelWidth}fr` } as CSSProperties}>
     {panels[0]}
-    <div className="sale-panel-divider" role="separator" tabIndex={0} aria-label="Atur lebar daftar belanja" aria-orientation="vertical" aria-valuemin={Math.floor(limits.minimum)} aria-valuemax={Math.ceil(limits.maximum)} aria-valuenow={Math.round(width)} aria-valuetext={`Daftar belanja ${Math.round(width)} persen`} title="Geser kiri/kanan atau gunakan tombol panah. Klik dua kali untuk mengembalikan ukuran." onPointerDown={event => {
+    <div className="sale-panel-divider" role="separator" tabIndex={0} aria-label="Atur lebar daftar belanja" aria-orientation="vertical" aria-valuemin={Math.floor(limits.minimum)} aria-valuemax={Math.ceil(limits.maximum)} aria-valuenow={Math.round(panelWidth)} aria-valuetext={`Daftar belanja ${Math.round(panelWidth)} persen`} title="Geser kiri/kanan atau gunakan tombol panah. Klik dua kali untuk mengembalikan ukuran." onPointerDown={event => {
       if (event.button !== 0) return
       event.preventDefault(); event.currentTarget.focus(); event.currentTarget.setPointerCapture(event.pointerId); setResizing(true)
     }} onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) drag(event.clientX) }} onPointerUp={event => {
       if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
       setResizing(false)
     }} onPointerCancel={() => setResizing(false)} onLostPointerCapture={() => setResizing(false)} onDoubleClick={() => change(initialWidth)} onKeyDown={event => {
-      if (event.key === 'ArrowLeft') { event.preventDefault(); change(width - 2) }
-      if (event.key === 'ArrowRight') { event.preventDefault(); change(width + 2) }
+      if (event.key === 'ArrowLeft') { event.preventDefault(); change(panelWidth - 2) }
+      if (event.key === 'ArrowRight') { event.preventDefault(); change(panelWidth + 2) }
       if (event.key === 'Home') { event.preventDefault(); change(limits.minimum) }
       if (event.key === 'End') { event.preventDefault(); change(limits.maximum) }
     }}><GripVertical aria-hidden="true" /></div>

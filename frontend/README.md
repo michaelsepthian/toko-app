@@ -228,7 +228,21 @@ Produk dengan stok nol/negatif tetap dapat dipilih dan dijual. Peringatan muncul
 
 ### Lebar panel penjualan
 
+Area kerja mengikuti lebar jendela, termasuk monitor QHD, ultrawide, dan 4K; tidak
+lagi dibatasi 1920 px. Header, Penjualan, Pembelian, Produk, Riwayat/Ringkasan,
+Data Master, dan Perangkat memakai ruang layar dengan jarak tepi yang konsisten.
+Form login dan dialog pembayaran/detail tetap dibatasi agar nyaman dibaca.
+
 Pada layar desktop (minimal 1024 px), geser pembatas antara Daftar Belanja dan Pilih Produk ke kiri/kanan. Lebar disimpan pada browser. Pembatas juga dapat difokuskan dengan Tab lalu diatur memakai panah kiri/kanan; Home/End menuju batas minimum/maksimum. Klik dua kali mengembalikan lebar awal. Pada layar kecil, panel tetap tersusun vertikal.
+
+Jumlah kolom katalog menyesuaikan lebar panel, bukan hanya 2–3 kolom. Saat jendela
+diperkecil, kedua panel menjaga lebar minimum; ketika diperbesar lagi, rasio pilihan
+kembali dipakai. Keranjang tidak dihapus ketika ukuran berubah. Pada layar tinggi,
+halaman produk berikutnya dimuat sampai area katalog cukup terisi dan dapat digulir;
+virtualisasi tetap membatasi jumlah kartu yang dipasang di DOM.
+
+Tes browser mencakup viewport 1920×1080, 2560×1440, 3440×1440, dan 3840×2160,
+pergantian ukuran, akses produk terakhir, serta regresi layar ponsel/tablet.
 
 Metode awal adalah Tunai jika tersedia dan aktif untuk penjualan, termasuk setelah menyelesaikan transaksi. Tombol Bayar berada selebar bagian bawah Daftar Belanja; ukuran total mengikuti lebar panel.
 

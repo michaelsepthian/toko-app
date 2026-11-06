@@ -116,7 +116,7 @@ function Workspace({ user }: { user: User }) {
     { view:'products',title:'Produk',icon:Archive },
     { view:'history',title:'Riwayat',icon:HistoryIcon },
   ]
-  return <main className="min-h-screen bg-background text-foreground">
+  return <main className="pos-app min-h-screen bg-background text-foreground">
     <div ref={headerRef}>
       <header className="pos-topbar"><div className="pos-topbar-inner">
         <div className="pos-brand"><div className="pos-brand-icon">{loading ? <RefreshCw className="animate-spin" aria-label="Memuat data" /> : <Store />}</div><div><h1>{devices.storeName}</h1><p>{devices.address}</p><StoreClock /></div></div>

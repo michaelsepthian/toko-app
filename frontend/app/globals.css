@@ -139,8 +139,11 @@
 }
 
 /* Kasir: area kerja mengikuti tinggi layar, panel menggulir secara terpisah. */
+.pos-app { --pos-page-gutter: clamp(22px, 1.25vw, 40px); }
+/* Only page containers expand; login forms and focused dialogs keep their limits. */
+.pos-app > .mx-auto, .pos-app .purchase-layout { width: 100%; max-width: none; padding-inline: var(--pos-page-gutter); }
 .pos-topbar { border-bottom: 1px solid var(--border); background: var(--card); }
-.pos-topbar-inner { max-width: 1920px; margin: auto; padding: 18px 22px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
+.pos-topbar-inner { width: 100%; margin: auto; padding: 18px var(--pos-page-gutter); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
 .pos-brand { display: flex; align-items: center; gap: 15px; min-width: 0; }
 .pos-brand-icon { display: grid; place-items: center; width: 58px; height: 58px; border-radius: 20px; color: var(--primary-foreground); background: var(--primary); flex-shrink: 0; }
 .pos-brand-icon svg { width: 29px; height: 29px; }
@@ -169,8 +172,8 @@
 .pos-user-label { padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted-foreground); }
 .pos-toast { position: fixed; bottom: 18px; right: 18px; z-index: 60; max-width: min(460px, calc(100vw - 36px)); background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; box-shadow: 0 8px 32px #0003; display: flex; align-items: center; gap: 15px; font-size: 14px; }
 .pos-toast button { margin-left: auto; padding: 4px; }
-.pos-error-banner { max-width: 1880px; margin: 8px auto 0; padding: 0 20px; }
-.sale-layout { max-width: 1920px; margin: auto; padding: 18px 22px; display: grid; gap: 18px; }
+.pos-error-banner { width: 100%; margin: 8px auto 0; padding: 0 var(--pos-page-gutter); }
+.sale-layout { width: 100%; margin: auto; padding: 18px var(--pos-page-gutter); display: grid; gap: 18px; }
 .sale-panel { min-width: 0; border: 1px solid var(--border); border-radius: 22px; background: var(--card); box-shadow: var(--panel-shadow); overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
 .sale-panel-heading { flex-shrink: 0; padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .sale-panel-heading h1, .sale-catalog-heading h2 { font-size: 23px; font-weight: 750; letter-spacing: -.5px; }
@@ -279,10 +282,12 @@
   .sale-product { padding: 18px; }
 }
 @media (max-width:1023px) {
+  .pos-app { --pos-page-gutter: 16px; }
   .sale-cart-body { max-height: clamp(350px, 55dvh, 600px); }
   .sale-products-grid { max-height: 650px; }
 }
 @media (max-width:600px) {
+  .pos-app { --pos-page-gutter: 12px; }
   .pos-topbar-inner { padding: 14px; }
   .pos-brand p { max-width: 270px; font-size: 11px; }
   .pos-brand h1 { font-size: 21px; }

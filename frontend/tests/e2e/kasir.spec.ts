@@ -174,6 +174,7 @@ test('penjualan menyembunyikan stok dan tetap dapat dibayar; F9 kosongkan keranj
 test('dropdown produk mencari pilihan dengan keyboard', async ({ page }) => {
   await mockAPI(page)
   await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Produk', exact: true }).click()
+  await page.getByRole('button', { name: 'Tambah Produk', exact: true }).click()
   await page.getByRole('button', { name: 'Kategori', exact: true }).click()
   const search = page.getByRole('combobox', { name: 'Cari kategori' })
   await expect(search).toBeFocused()
@@ -881,6 +882,79 @@ for (const width of [390, 1440]) {
     await page.screenshot({ path: `test-results/infinite-products-${width}.png` })
   })
 }
+
+for (const viewport of [{ width: 1920, height: 1080 }, { width: 2560, height: 1440 }, { width: 3440, height: 1440 }, { width: 3840, height: 2160 }]) {
+  test(`area kerja memakai lebar layar besar ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    await page.setViewportSize(viewport)
+    await mockAPI(page, 'PEMILIK', false, '10', 125)
+    const fullWidth = async (selector: string) => {
+      await expect.poll(async () => Math.round((await page.locator(selector).boundingBox())!.width) - await page.evaluate(() => document.documentElement.clientWidth)).toBe(0)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    }
+    await fullWidth('.sale-layout')
+    await fullWidth('.pos-topbar-inner')
+    const layout = (await page.locator('.sale-layout').boundingBox())!
+    expect(Math.abs(layout.y + layout.height - viewport.height)).toBeLessThanOrEqual(1)
+    const columns = await page.locator('.sale-product-row').first().evaluate(element => getComputedStyle(element).gridTemplateColumns.split(' ').length)
+    expect(columns).toBeGreaterThanOrEqual(viewport.width >= 2560 ? 5 : 4)
+    if (viewport.height >= 2160) {
+      // More than 50 cards can fit on a tall monitor; paging must not get stuck.
+      await expect.poll(async () => Number(await page.locator('.sale-virtual-space').getAttribute('data-loaded-count'))).toBeGreaterThan(50)
+    }
+    await page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }).click()
+    await expect(page.getByLabel('Jumlah Beras Ramos', { exact: true })).toHaveValue('1')
+    const pay = (await page.locator('.sale-pay').boundingBox())!
+    expect(pay.y + pay.height).toBeLessThanOrEqual(viewport.height)
+    await page.screenshot({ path: `test-results/wide-sales-${viewport.width}.png` })
+    const nav = page.getByRole('navigation', { name: 'Menu utama' })
+    await nav.getByRole('button', { name: 'Produk', exact: true }).click()
+    await fullWidth('.products-page')
+    await nav.getByRole('button', { name: 'Riwayat', exact: true }).click()
+    await fullWidth('.history-page')
+    await page.getByLabel('Menu lainnya', { exact: true }).click()
+    await nav.getByRole('button', { name: 'Pembelian', exact: true }).click()
+    await fullWidth('.purchase-layout')
+    await fullWidth('.purchase-inventory')
+    await page.getByLabel('Menu lainnya', { exact: true }).click()
+    await nav.getByRole('button', { name: 'Data Master', exact: true }).click()
+    await fullWidth('.masters-page')
+    await page.getByLabel('Menu lainnya', { exact: true }).click()
+    await nav.getByRole('button', { name: 'Perangkat', exact: true }).click()
+    await fullWidth('main > .mx-auto')
+    // Workspace width must not stretch focused forms/dialogs to the monitor width.
+    await nav.getByRole('button', { name: 'Penjualan', exact: true }).click()
+    await page.getByRole('button', { name: /^Bayar/ }).click()
+    const dialog = (await page.getByRole('dialog').boundingBox())!
+    expect(dialog.width).toBeLessThanOrEqual(720)
+    expect(dialog.y + dialog.height).toBeLessThanOrEqual(viewport.height)
+  })
+}
+
+test('resize layar mempertahankan rasio panel dan keranjang serta akses produk terakhir', async ({ page }) => {
+  await page.setViewportSize({ width: 2560, height: 1440 })
+  await mockAPI(page, 'PEMILIK', false, '10', 500)
+  await page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }).click()
+  const divider = page.getByRole('separator', { name: 'Atur lebar daftar belanja' })
+  await divider.focus()
+  await page.keyboard.press('Home')
+  await expect(divider).toHaveAttribute('aria-valuenow', '20')
+  await page.setViewportSize({ width: 1024, height: 768 })
+  await expect.poll(async () => Number(await divider.getAttribute('aria-valuenow'))).toBeGreaterThan(20)
+  await page.setViewportSize({ width: 3840, height: 2160 })
+  await expect(divider).toHaveAttribute('aria-valuenow', '20')
+  await expect(page.getByLabel('Jumlah Beras Ramos', { exact: true })).toHaveValue('1')
+  const space = page.locator('.sale-virtual-space')
+  for (let attempt = 0; attempt < 12 && Number(await space.getAttribute('data-loaded-count')) < 500; attempt++) {
+    const previous = Number(await space.getAttribute('data-loaded-count'))
+    await page.locator('.sale-virtual-catalog').evaluate(element => { element.scrollTop = element.scrollHeight })
+    await expect.poll(async () => Number(await space.getAttribute('data-loaded-count'))).toBeGreaterThan(previous)
+  }
+  await page.locator('.sale-virtual-catalog').evaluate(element => { element.scrollTop = element.scrollHeight })
+  await expect(page.getByRole('button', { name: 'Tambah Produk Uji 500 ke keranjang', exact: true })).toBeVisible()
+  expect(await page.locator('.sale-product').count()).toBeLessThan(500)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.screenshot({ path: 'test-results/wide-sales-resized.png' })
+})
 
 test('4275 produk tetap membuka daftar dengan maksimal 50 baris', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })

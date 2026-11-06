@@ -6,6 +6,7 @@ import type { Product } from '@/lib/types'
 import { ProductLoading } from './product-loading'
 import { money } from '@/lib/pos'
 import { catalogOffsets, catalogWindow } from '@/lib/catalog-window'
+import { catalogColumns } from '@/lib/catalog-layout'
 import { productPageSize } from '@/lib/use-product-pages'
 
 type Props = { loading?: boolean; products: Product[]; categories: Map<number, string>; highlight: number; locked: boolean; active: boolean; onHighlight: (index: number) => void; onAdd: (product: Product) => void; favorites: ReadonlySet<number>; onToggleFavorite: (id: number) => void; favoriteEditable: boolean; favoriteBusyID: number | null }
@@ -31,7 +32,7 @@ export function SaleCatalog(props: Props) {
 }
 
 function CatalogRows({ products, categories, highlight, locked, active, onHighlight, onAdd, favorites, onToggleFavorite, favoriteEditable, favoriteBusyID, viewport, scroller }: Props & { viewport: { width: number; height: number }; scroller: React.RefObject<HTMLDivElement | null> }) {
-  const columns = viewport.width >= 700 ? 3 : 2
+  const columns = catalogColumns(viewport.width)
   const resultKey = useMemo(() => products.map(product => product.id).join(','), [products])
   // A separate keyed component discards old measurements when the search changes.
   return <MeasuredRows key={resultKey} {...{ products, categories, highlight, locked, active, onHighlight, onAdd, favorites, onToggleFavorite, favoriteEditable, favoriteBusyID, viewport, scroller, columns }} />
@@ -69,6 +70,14 @@ function MeasuredRows({ products, categories, highlight, locked, active, onHighl
     node.addEventListener('scroll', onScroll, { passive: true })
     return () => { node.removeEventListener('scroll', onScroll); cancelAnimationFrame(frame) }
   }, [scroller, products.length])
+  useLayoutEffect(() => {
+    const node = scroller.current
+    // Tall/wide monitors can fit a complete page. Fill the viewport until there
+    // is something to scroll, otherwise the remaining products are unreachable.
+    if (active && node && node.clientHeight > 0 && visibleCount < products.length && node.scrollHeight - node.scrollTop - node.clientHeight < 250) {
+      setLimit(current => Math.min(products.length, current + productPageSize))
+    }
+  }, [active, offsets, viewport.height, visibleCount, products.length, scroller])
   useLayoutEffect(() => {
     const node = scroller.current
     if (!node || !active || !products.length) return
