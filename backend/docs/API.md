@@ -277,3 +277,50 @@ Respons penjualan, pembelian, dan catatan belanja juga menyertakan
 `cancel_transaction_at` (timestamp dengan zona waktu) dan `cancel_transaction_by`
 (ID pengguna). Keduanya NULL sebelum pembatalan atau bila audit historis tidak
 tersedia. Pembatalan pembelian mengisi audit yang sama pada catatan terkait.
+
+### Rencana belanja
+
+Rencana belanja **tidak memengaruhi stok, transaksi pembelian, atau laporan kas**.
+Semua path berikut relatif terhadap `/api/v1` dan memerlukan sesi login.
+
+| Method/path | Akses | Keterangan |
+| --- | --- | --- |
+| `GET /rencana-belanja/kalender?bulan=2026-11` | PEMILIK, KASIR | Ringkasan per tanggal: `tanggal`, `total_item`, `sudah_dibeli` |
+| `GET /rencana-belanja?tanggal=2026-11-10&limit=100&offset=0` | PEMILIK, KASIR | Daftar item aktif, pagination standar |
+| `GET /rencana-belanja/sumber` | PEMILIK, KASIR | Nama tempat beli: hanya `id`, `nama`, `aktif` |
+| `POST /rencana-belanja` | PEMILIK, KASIR | Tambah 1–100 item atomik; retry dengan key/body yang sama |
+| `PUT /rencana-belanja/{id}/checklist` | PEMILIK, KASIR | Body `{"dibeli":true}` atau `{"dibeli":false}` |
+| `POST /rencana-belanja/pindah` | PEMILIK | Pindahkan 1–100 item sekaligus ke tempat/tanggal lain |
+| `PUT /rencana-belanja/{id}` | PEMILIK | Edit data barang, tanpa menerima tempat beli/tanggal |
+| `POST /rencana-belanja/{id}/hapus` | PEMILIK | Soft-delete dengan audit pengguna |
+
+Contoh tambah barang:
+
+```json
+{
+  "idempotency_key": "11111111-1111-4111-8111-111111111111",
+  "tanggal": "2026-11-10",
+  "sumber_pembelian_id": null,
+  "items": [
+    { "produk_id": 1, "jumlah": null },
+    { "produk_id": null, "nama_barang": "Kantong kemasan", "jumlah": "2.5", "satuan": "pak", "catatan": "Ukuran besar" }
+  ]
+}
+```
+
+`produk_id = null` berarti Lainnya; nama barang wajib diisi. Untuk produk master,
+nama dan satuan selalu disalin server. `jumlah` boleh tidak dikirim atau NULL;
+jika terisi harus positif dan maksimal tiga desimal. Satuan dan catatan boleh
+kosong. Tempat beli NULL berarti Belum ditentukan. Referensi baru hanya menerima
+produk/tempat beli aktif. Tanggal rencana boleh lampau atau mendatang.
+
+Contoh pemindahan (jumlah, catatan, checklist, dan ID item dipertahankan):
+
+```json
+{ "ids": [1, 2], "sumber_pembelian_id": 3, "tanggal": "2026-11-12" }
+```
+
+`tanggal` pada pemindahan opsional; jika tidak dikirim tanggal lama dipertahankan.
+Tempat beli NULL memindahkan ke Belum ditentukan. ID yang hilang/terhapus membuat
+seluruh pemindahan gagal. Pengguna audit diambil dari sesi, bukan body. Ubah
+schema database lama memakai `database/migrations/20261110_rencana_belanja.sql`.

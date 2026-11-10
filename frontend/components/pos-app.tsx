@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Archive, Banknote, History as HistoryIcon, LogOut, Moon, Menu, RefreshCw, Settings, ShoppingBasket, Store, Sun, Truck, WalletCards, X } from 'lucide-react'
+import { Archive, Banknote, CalendarDays, History as HistoryIcon, LogOut, Moon, Menu, RefreshCw, Settings, ShoppingBasket, Store, Sun, Truck, WalletCards, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { api, masterData, message, logout } from '@/lib/api'
 import type { Data, Stock, Transaction, User } from '@/lib/types'
@@ -13,9 +13,10 @@ import { Products, Masters, Inventory } from './pos/masters'
 import { History } from './pos/history'
 import { Devices } from './pos/devices'
 import { ErrorBox } from './pos/common'
+import { ShoppingPlan } from './pos/shopping-plan'
 
 const initialData: Data = { products: [], categories: [], units: [], payments: [], sources: [], stocks: [] }
-type View = 'cashier' | 'purchases' | 'products' | 'history' | 'masters' | 'devices'
+type View = 'cashier' | 'purchases' | 'products' | 'history' | 'masters' | 'devices' | 'shopping'
 export function PosApp() { return <AuthGate>{user => <Workspace key={user.id} user={user} />}</AuthGate> }
 
 function Workspace({ user }: { user: User }) {
@@ -115,6 +116,7 @@ function Workspace({ user }: { user: User }) {
     { view:'cashier',title:'Penjualan',icon:ShoppingBasket },
     { view:'products',title:'Produk',icon:Archive },
     { view:'history',title:'Riwayat',icon:HistoryIcon },
+    { view:'shopping',title:'Rencana Belanja',icon:CalendarDays },
   ]
   return <main className="pos-app min-h-screen bg-background text-foreground">
     <div ref={headerRef}>
@@ -134,7 +136,7 @@ function Workspace({ user }: { user: User }) {
               </div></details>
             </div>
           </div>
-          <div className="pos-primary-nav">{primary.map(tab => <Button key={tab.view} variant={view === tab.view ? 'default' : 'ghost'} aria-current={view === tab.view ? 'page' : undefined} onClick={() => navigate(tab.view)}><tab.icon />{tab.title}</Button>)}</div>
+          <div className="pos-primary-nav">{primary.map(tab => <Button key={tab.view} variant={view === tab.view ? 'default' : 'ghost'} aria-label={tab.title} aria-current={view === tab.view ? 'page' : undefined} onClick={() => navigate(tab.view)}><tab.icon />{tab.view === 'shopping' ? <span><span className="shopping-nav-prefix">Rencana </span>Belanja</span> : tab.title}</Button>)}</div>
         </nav>
       </div></header>
       {error && <div className="pos-error-banner flex items-center gap-2"><div className="flex-1"><ErrorBox>{error}</ErrorBox></div><Button variant="ghost" aria-label="Tutup pesan kesalahan" onClick={() => setError('')}><X /></Button></div>}
@@ -144,6 +146,7 @@ function Workspace({ user }: { user: User }) {
     {owner && <Checkout loading={loading} user={user} data={data} purchase active={view === 'purchases'} onSaved={saved} />}
     {view === 'purchases' && owner && <Inventory data={data} refresh={refreshStocks} />}
     {view === 'products' && <Products loading={loading} data={data} refresh={refresh} owner={owner} />}
+    <ShoppingPlan active={view === 'shopping'} owner={owner} data={data} masterLoading={loading} />
     {view === 'history' && <History data={data} owner={owner} refresh={refresh} print={print} storeName={devices.storeName} userID={user.id} />}
     {view === 'masters' && owner && <Masters data={data} refresh={refresh} />}
     {view === 'devices' && owner && <Devices settings={devices} onChange={setDevices} />}

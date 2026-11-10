@@ -29,3 +29,7 @@ export type CashPurchaseNoteInput = { idempotency_key: string; tanggal: string; 
 export type CashPurchaseNote = AuditFields & CancellationFields & { id: number; tanggal: string; total: Amount; catatan: string; status: "TERBUKA" | "SELESAI" | "BATAL"; pembelian_id: number | null }
 
 export type DailyPurchase = { catatan_id: number | null; pembelian_id: number | null; nomor: string; metode: string; total: Amount; belum_dirinci: boolean; catatan: string; items: { nama: string; jumlah: Amount; subtotal: Amount }[] }
+
+export type ShoppingSource = { id: number; nama: string; aktif: boolean }
+export type ShoppingItem = AuditFields & { id: number; tanggal: string; sumber_pembelian_id: number | null; produk_id: number | null; nama_barang: string; jumlah: Amount | null; satuan: string; catatan: string; dibeli_at: string | null; dibeli_by: number | null }
+export type ShoppingDay = { tanggal: string; total_item: number; sudah_dibeli: number }

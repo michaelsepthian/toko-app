@@ -25,6 +25,7 @@ func New(c config.Config, store *repository.Store) http.Handler {
 	registerMasters(api, store.DB, catalog.invalidate)
 	registerDailySummaries(api, svc)
 	registerCashPurchaseNotes(api, svc)
+	registerShoppingPlans(api, svc)
 	api.HandleFunc("POST /api/v1/auth/logout", func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Fields(r.Header.Get("Authorization"))
 		if len(parts) == 2 {

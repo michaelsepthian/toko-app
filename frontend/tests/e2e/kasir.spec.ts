@@ -977,3 +977,68 @@ test('4275 produk tetap membuka daftar dengan maksimal 50 baris', async ({ page 
   await expect(page.locator('.purchase-products > button')).toHaveCount(1)
   await expect(page.locator('.purchase-products > button')).toContainText('Produk Uji 4275')
 })
+
+test.describe('mobile sales workspace scroll', () => {
+  test.use({ hasTouch: true })
+
+  for (const width of [320, 390, 768]) {
+    test(`scroll produk dan keranjang menyisakan tab di atas ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 720 })
+      await mockAPI(page, 'PEMILIK', false, '10', 125)
+      const tabs = page.getByRole('tablist', { name: 'Bagian penjualan' })
+      const catalog = page.locator('.sale-virtual-catalog')
+      const wheelInside = async (selector: string, delta: number) => {
+        const bounds = (await page.locator(selector).boundingBox())!
+        const y = Math.min(690, bounds.y + Math.min(55, bounds.height / 2))
+        await page.mouse.move(bounds.x + bounds.width / 2, y)
+        await page.mouse.wheel(0, delta)
+      }
+      await page.evaluate(() => scrollTo(0, 0))
+      await catalog.evaluate(node => { node.scrollTop = 0 })
+      expect((await tabs.boundingBox())!.y).toBeGreaterThan(100)
+      await wheelInside('.sale-virtual-catalog', 1000)
+      await expect.poll(async () => Math.round((await tabs.boundingBox())!.y)).toBe(0)
+      expect(await page.locator('.pos-topbar').evaluate(node => node.getBoundingClientRect().bottom)).toBeLessThanOrEqual(1)
+      await expect.poll(() => catalog.evaluate(node => node.scrollTop)).toBeGreaterThan(0)
+      const stickySearch = (await page.locator('.sale-search-area').boundingBox())!
+      const panelInset = await page.locator('.sale-layout').evaluate(node => parseFloat(getComputedStyle(node).paddingTop) + 1)
+      expect(Math.abs(stickySearch.y - (await tabs.boundingBox())!.height)).toBeLessThanOrEqual(panelInset)
+      await wheelInside('.sale-virtual-catalog', 600)
+      await expect.poll(async () => Math.round((await tabs.boundingBox())!.y)).toBe(0)
+
+      const search = page.getByLabel('Cari atau scan produk penjualan', { exact: true })
+      for (let id = 2; id <= 15; id++) { await search.fill(`TEST-${id}`); await search.press('Enter') }
+      await tabs.getByRole('tab', { name: /Keranjang/ }).click()
+      await page.locator('.sale-cart-body').evaluate(node => { node.scrollTop = 0 })
+      await page.evaluate(() => scrollTo(0, 0))
+      expect((await tabs.boundingBox())!.y).toBeGreaterThan(100)
+      await wheelInside('.sale-cart-body', 1000)
+      await expect.poll(async () => Math.round((await tabs.boundingBox())!.y)).toBe(0)
+      await expect.poll(() => page.locator('.sale-cart-body').evaluate(node => node.scrollTop)).toBeGreaterThan(0)
+      await expect(page.getByRole('button', { name: /Bayar/ })).toBeInViewport()
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      await page.screenshot({ path: `test-results/mobile-sales-cart-pinned-${width}.png` })
+      await tabs.getByRole('tab', { name: 'Produk', exact: true }).click()
+      await expect.poll(async () => Math.round((await tabs.boundingBox())!.y)).toBe(0)
+      await expect(search).toBeInViewport()
+      await page.screenshot({ path: `test-results/mobile-sales-products-pinned-${width}.png` })
+    })
+  }
+
+  test('satu swipe sentuh menaikkan header lalu melanjutkan scroll produk', async ({ page, context }) => {
+    await page.setViewportSize({ width: 390, height: 720 })
+    await mockAPI(page, 'PEMILIK', false, '10', 125)
+    await page.evaluate(() => scrollTo(0, 0))
+    const bounds = (await page.locator('.sale-virtual-catalog').boundingBox())!
+    const session = await context.newCDPSession(page)
+    const x = Math.round(bounds.x + bounds.width / 2), y = Math.min(685, Math.round(bounds.y + 70))
+    await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+    for (let distance = 30; distance <= 390; distance += 30) {
+      await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y - distance }] })
+    }
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await expect.poll(async () => Math.round((await page.getByRole('tablist', { name: 'Bagian penjualan' }).boundingBox())!.y)).toBe(0)
+    await expect.poll(() => page.locator('.sale-virtual-catalog').evaluate(node => node.scrollTop)).toBeGreaterThan(0)
+    await session.detach()
+  })
+})

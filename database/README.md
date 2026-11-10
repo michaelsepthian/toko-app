@@ -47,3 +47,24 @@ Untuk database yang sudah ada, jalankan sebelum memperbarui aplikasi:
 ```
 
 Database baru sudah mencakup audit dalam `schema.sql`.
+
+## Rencana belanja (20261110)
+
+Database baru sudah memiliki tabel `rencana_belanja_item` di `schema.sql`.
+Untuk database yang sudah ada, backup lalu jalankan sebelum memperbarui aplikasi:
+
+```sh
+./deploy/migrate.sh database/migrations/20261110_rencana_belanja.sql
+```
+
+Migrasi juga terdaftar dalam `migrations/manifest.txt` untuk deployment otomatis.
+`tanggal` adalah DATE tanpa konversi zona waktu. `produk_id = NULL` berarti
+barang bebas (Lainnya), `sumber_pembelian_id = NULL` berarti Belum ditentukan.
+`jumlah` boleh NULL; nilai terisi harus positif dengan maksimal tiga desimal.
+Nama dan satuan produk disalin oleh server, bukan dipercayai dari klien.
+
+Pemilik dan kasir bisa membaca, menambah, dan checklist; hanya pemilik dapat
+mengedit, menghapus, atau memindahkan barang/tempat beli/tanggal. Checklist tidak
+membuat transaksi, pengeluaran, atau mutasi stok. Penghapusan bersifat soft-delete;
+identitas batch tetap disimpan supaya retry penyimpanan tidak menggandakan barang.
+Satu batch maksimal 100 item dan disimpan atomik dengan idempotency key.

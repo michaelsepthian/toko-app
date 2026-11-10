@@ -2,3 +2,4 @@
 # Migrasi historis tanpa tanggal sudah tercakup schema.sql dan tidak dijalankan otomatis.
 20261101_tanggal_pendapatan.sql
 20261102_audit_pengguna.sql
+20261110_rencana_belanja.sql

@@ -13,6 +13,7 @@ import { money, totals, validLines, validNumber } from '@/lib/pos'
 import type { CartLine, Data, Product, Transaction, TransactionInput, User } from '@/lib/types'
 import { useCheckout } from '@/lib/use-checkout'
 import { useSaleDrafts } from '@/lib/use-sale-drafts'
+import { useMobileSaleScroll } from '@/lib/use-mobile-sale-scroll'
 import type { SaleSlot } from '@/lib/sale-drafts'
 import { ErrorBox, Field } from './common'
 import { SaleLayout } from './sale-layout'
@@ -24,6 +25,8 @@ import { parseProductOrder, productSortOptions, sortProducts, type ProductOrderS
 type Props = { loading?: boolean; user: User; data: Data; active: boolean; operationalDateHost: HTMLDivElement | null; onSaved: (sale: Transaction, purchase: boolean, print: boolean) => Promise<void>; onReprint: (sale: Transaction) => Promise<void>; onProductUpdated: (product: Product) => void }
 
 export function SaleCheckout({ loading = false, user, data, active, operationalDateHost, onSaved, onReprint, onProductUpdated }: Props) {
+  const workspaceRef = useRef<HTMLDivElement>(null)
+  useMobileSaleScroll(workspaceRef, active)
   const drafts = useSaleDrafts(user.id)
   const { cart, methodID, paid, reference, print } = drafts.draft
   const setCart = (cart: CartLine[]) => drafts.update({ cart })
@@ -345,7 +348,7 @@ export function SaleCheckout({ loading = false, user, data, active, operationalD
   }
 
   const itemCount = cart.reduce((sum, line) => sum.plus(line.quantity || 0), new Decimal(0)).toString()
-  return <div hidden={!active} className="sale-page" data-mobile-panel={mobilePanel}>
+  return <div ref={workspaceRef} hidden={!active} className="sale-page" data-mobile-panel={mobilePanel}>
     {operationalDateHost && createPortal(<label className="pos-operating-date" data-backdated={drafts.ready && incomeDate !== jakartaDay()} title="Hari operasional kasir. Penjualan masuk ringkasan pada tanggal ini.">
       <span className="pos-operating-caption">Tanggal operasional <small>WIB</small></span>
       <span className="pos-operating-value" aria-hidden="true">{drafts.ready && incomeDateValid ? incomeDateLabel(incomeDate) : 'Pilih tanggal'}</span><CalendarDays className="pos-operating-icon" aria-hidden="true" />

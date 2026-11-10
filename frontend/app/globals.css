@@ -1,6 +1,7 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
+@import './shopping-plan.css';
 
 @custom-variant dark (&:is(.dark *));
 
@@ -783,6 +784,13 @@
   .sale-catalog { overflow: visible; }
   .sale-search-area,.purchase-search-area { position: sticky; top: 65px; z-index: 15; flex-shrink: 0; background: var(--card); border-radius: 18px 18px 0 0; box-shadow: 0 6px 12px #0001; }
   .product-search-bar { position: sticky; top: 0; z-index: 15; padding-block: 12px; background: var(--card); box-shadow: 0 6px 12px #0001; }
+  /* Leave a full workspace below the main header, even with an empty cart.
+     Once it scrolls away, only the product/cart tabs remain at the top. */
+  .sale-page { --sale-mobile-tabs-height: 65px; min-height: 100dvh; }
+  .sale-page .sale-layout { height: calc(100dvh - var(--sale-mobile-tabs-height)); min-height: 0; grid-template-rows: minmax(0, 1fr); }
+  .sale-page .sale-search-area { top: var(--sale-mobile-tabs-height); }
+  .sale-page .sale-catalog .sale-products-grid { flex: 1 1 0; height: auto; min-height: 0; max-height: none; }
+  .sale-page .sale-cart-body { min-height: 0; max-height: none; }
 }
 @media (max-width:600px) {
   .product-list-row { flex-direction: column; align-items: flex-start; gap: 8px; }
