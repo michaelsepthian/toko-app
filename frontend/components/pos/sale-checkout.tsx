@@ -5,6 +5,8 @@ import { createPortal } from 'react-dom'
 import Decimal from 'decimal.js'
 import { Banknote, Barcode, CalendarDays, Check, CircleAlert, CreditCard, LoaderCircle, Minus, Plus, Printer, QrCode, RotateCcw, Search, ShoppingBasket, Trash2, WalletCards, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ResponsivePanel } from '@/components/ui/responsive-panel'
+import { useContentMotion } from '@/lib/ui-interactions'
 import { api, message } from '@/lib/api'
 import { exactProduct, groupedCash, isBarcodeQuery, isSearchCharacter } from '@/lib/keyboard'
 import { jakartaDay } from '@/lib/history-date'
@@ -13,16 +15,20 @@ import { money, totals, validLines, validNumber } from '@/lib/pos'
 import type { CartLine, Data, Product, Transaction, TransactionInput, User } from '@/lib/types'
 import { useCheckout } from '@/lib/use-checkout'
 import { useSaleDrafts } from '@/lib/use-sale-drafts'
+import { useMobileSaleScroll } from '@/lib/use-mobile-sale-scroll'
 import type { SaleSlot } from '@/lib/sale-drafts'
 import { ErrorBox, Field } from './common'
 import { SaleLayout } from './sale-layout'
 import { SaleCatalog } from './sale-catalog'
 import { SearchSelect } from './search-select'
+import { MobileCartTabs, type MobileCartPanel } from './mobile-cart-tabs'
 import { parseProductOrder, productSortOptions, sortProducts, type ProductOrderSettings, type ProductPopularity, type ProductSort } from '@/lib/product-sort'
 
-type Props = { user: User; data: Data; active: boolean; operationalDateHost: HTMLDivElement | null; onSaved: (sale: Transaction, purchase: boolean, print: boolean) => Promise<void>; onReprint: (sale: Transaction) => Promise<void>; onProductUpdated: (product: Product) => void }
+type Props = { loading?: boolean; user: User; data: Data; active: boolean; operationalDateHost: HTMLDivElement | null; onSaved: (sale: Transaction, purchase: boolean, print: boolean) => Promise<void>; onReprint: (sale: Transaction) => Promise<void>; onProductUpdated: (product: Product) => void }
 
-export function SaleCheckout({ user, data, active, operationalDateHost, onSaved, onReprint, onProductUpdated }: Props) {
+export function SaleCheckout({ loading = false, user, data, active, operationalDateHost, onSaved, onReprint, onProductUpdated }: Props) {
+  const workspaceRef = useRef<HTMLDivElement>(null)
+  useMobileSaleScroll(workspaceRef, active)
   const drafts = useSaleDrafts(user.id)
   const { cart, methodID, paid, reference, print } = drafts.draft
   const setCart = (cart: CartLine[]) => drafts.update({ cart })
@@ -32,6 +38,7 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
   const setPrint = (print: boolean) => drafts.update({ print })
   const cartRef = useRef<CartLine[]>([])
   const [query, setQuery] = useState('')
+  const [mobilePanel, setMobilePanel] = useState<MobileCartPanel>('products')
   const [highlight, setHighlight] = useState(0)
   const [order, setOrder] = useState<ProductOrderSettings>({ sort: 'recommended', favoritesFirst: false })
   const [orderReady, setOrderReady] = useState(false)
@@ -84,6 +91,7 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
   const searchRef = useRef<HTMLInputElement>(null)
   const dialogRef = useRef<HTMLElement>(null)
   const cartBodyRef = useRef<HTMLDivElement>(null)
+  useContentMotion(cartBodyRef, drafts.active)
   const [addition, setAddition] = useState(0)
   const draftTabsRef = useRef<HTMLDivElement>(null)
   const quantityRefs = useRef<Map<number, HTMLInputElement>>(new Map())
@@ -93,7 +101,7 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
   const locked = !drafts.ready || !checkout.ready || busy || Boolean(pending)
   const switchingLocked = locked || modal
   const incomeDate = pending?.tanggal_pendapatan ?? (drafts.draft.incomeDate || jakartaDay())
-  const incomeDateValid = validIncomeDate(incomeDate) && incomeDate <= jakartaDay()
+  const incomeDateValid = validIncomeDate(incomeDate)
   const methods = data.payments.filter(method => method.aktif && method.untuk_penjualan)
   const method = methods.find(method => method.id === methodID) ?? methods.find(method => method.jenis === 'CASH') ?? methods[0]
   const valid = validLines(cart, discount)
@@ -197,7 +205,7 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
   }
   function openPayment() {
     if (!valid || !method || locked) return
-    if (!incomeDateValid) { setError('Pilih tanggal pendapatan yang valid, maksimal hari ini (WIB).'); return }
+    if (!incomeDateValid) { setError('Pilih tanggal pendapatan yang valid.'); return }
     setError(''); setPaymentError(''); setChangePreview(null); setPaymentStage('confirm'); setCompleted(null); setModal(true)
   }
   function finish() { if (savingRef.current || busy || paymentStage === 'saving' || (pending && !completed)) return; setPaymentStage('confirm'); setPaymentError(''); setChangePreview(null); setModal(false); setCompleted(null); setError(''); focusSearch() }
@@ -265,12 +273,13 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
       }
       if (modal || locked) return
       if (event.key === 'F9') { event.preventDefault(); clearCart(); return }
-      if (event.key === 'F2') { event.preventDefault(); searchRef.current?.focus(); searchRef.current?.select(); return }
+      if (event.key === 'F2') { event.preventDefault(); setMobilePanel('products'); requestAnimationFrame(() => { searchRef.current?.focus(); searchRef.current?.select() }); return }
       if (event.key === 'F3') {
         event.preventDefault()
         const id = selectedCart ?? cartRef.current.at(-1)?.product.id
         const input = id ? quantityRefs.current.get(id) : undefined
-        input?.focus(); input?.select(); return
+        if (input) { setMobilePanel('cart'); requestAnimationFrame(() => { input.focus(); input.select() }) }
+        return
       }
       const target = event.target as HTMLElement
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target.isContentEditable) return
@@ -278,8 +287,8 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
       if (isSearchCharacter(event)) {
         event.preventDefault()
         setQuery(current => current + event.key)
-        searchRef.current?.focus()
-        requestAnimationFrame(() => { const input = searchRef.current; if (input) input.setSelectionRange(input.value.length, input.value.length) })
+        setMobilePanel('products')
+        requestAnimationFrame(() => { const input = searchRef.current; if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length) } })
       }
     }
     window.addEventListener('keydown', keyboard)
@@ -296,11 +305,6 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
       if (event.key === 'Enter' && paymentStage === 'failed' && (event.target === dialog || (event.target as HTMLElement).closest('[data-payment-retry]')) && !event.repeat && !event.isComposing && !event.ctrlKey && !event.metaKey && !event.altKey) { event.preventDefault(); void save(Boolean(pending)); return }
       if (event.key === 'Enter' && event.repeat) { event.preventDefault(); return }
       if (event.key === 'Escape') { event.preventDefault(); if (!busy) finish(); return }
-      if (event.key !== 'Tab') return
-      const nodes = focusable(); const first = nodes[0]; const last = nodes[nodes.length - 1]
-      if (!nodes.length) { event.preventDefault(); return }
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
     }
     dialog.addEventListener('keydown', keydown)
     return () => dialog.removeEventListener('keydown', keydown)
@@ -342,7 +346,7 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
   }
 
   const itemCount = cart.reduce((sum, line) => sum.plus(line.quantity || 0), new Decimal(0)).toString()
-  return <div hidden={!active}>
+  return <div ref={workspaceRef} hidden={!active} className="sale-page" data-mobile-panel={mobilePanel}>
     {operationalDateHost && createPortal(<label className="pos-operating-date" data-backdated={drafts.ready && incomeDate !== jakartaDay()} title="Hari operasional kasir. Penjualan masuk ringkasan pada tanggal ini.">
       <span className="pos-operating-caption">Tanggal operasional <small>WIB</small></span>
       <span className="pos-operating-value" aria-hidden="true">{drafts.ready && incomeDateValid ? incomeDateLabel(incomeDate) : 'Pilih tanggal'}</span><CalendarDays className="pos-operating-icon" aria-hidden="true" />
@@ -352,11 +356,12 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
         if (event.key !== 'Enter' && event.key !== ' ') return
         if (typeof event.currentTarget.showPicker !== 'function') return
         try { event.currentTarget.showPicker(); event.preventDefault() } catch { /* Preserve native keyboard behavior. */ }
-      }} aria-label="Tanggal operasional (WIB)" type="date" max={jakartaDay()} value={drafts.ready ? incomeDate : ''} disabled={!active || switchingLocked} aria-invalid={drafts.ready && !incomeDateValid} onChange={event => drafts.update({ incomeDate: event.target.value })} />
+      }} aria-label="Tanggal operasional (WIB)" type="date" value={drafts.ready ? incomeDate : ''} disabled={!active || switchingLocked} aria-invalid={drafts.ready && !incomeDateValid} onChange={event => drafts.update({ incomeDate: event.target.value })} />
     </label>, operationalDateHost)}
-    <nav className="sale-mobile-nav" aria-label="Bagian penjualan"><a href="#sale-mobile-catalog">Pilih Produk</a><a href="#sale-mobile-cart">Keranjang <span>{itemCount}</span></a></nav>
+    <MobileCartTabs prefix="sale" label="Bagian penjualan" panel={mobilePanel} count={itemCount} onChange={setMobilePanel} />
+    {!modal && (error || drafts.storageError) && <div className="mx-3 mt-3"><ErrorBox>{error || drafts.storageError}</ErrorBox></div>}
     <SaleLayout>
-      <section id="sale-mobile-cart" className="sale-panel sale-cart" aria-labelledby="cart-heading">
+      <section id="sale-panel-cart" role="tabpanel" className="sale-panel sale-cart" aria-labelledby="sale-tab-cart">
         <div className="sale-draft-strip"><div ref={draftTabsRef} className="sale-draft-tabs" role="tablist" aria-label="Transaksi berjalan">
           {drafts.drafts.map((draft, slot) => <div className="sale-draft-tab" data-selected={drafts.active === slot} role="presentation" key={draft.id}><button type="button" id={`sale-draft-tab-${slot}`} role="tab" aria-selected={drafts.active === slot} aria-controls="sale-active-cart" aria-keyshortcuts={slot < 9 ? `Alt+${slot + 1}` : undefined} tabIndex={drafts.active === slot ? 0 : -1} disabled={switchingLocked} title={`Transaksi ${slot + 1}${slot < 9 ? ` · Alt + ${slot + 1}` : ''}`} onClick={() => switchDraft(slot)} onKeyDown={event => {
             const next = event.key === 'Home' ? 0 : event.key === 'End' ? drafts.drafts.length - 1 : event.key === 'ArrowLeft' ? (slot + drafts.drafts.length - 1) % drafts.drafts.length : event.key === 'ArrowRight' ? (slot + 1) % drafts.drafts.length : null
@@ -367,9 +372,13 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
         </div></div>
         <div className="sale-panel-heading"><div><h1 id="cart-heading">Daftar Belanja</h1><p>{itemCount} barang dipilih</p></div><Button className="sale-clear" variant="ghost" disabled={locked || !cart.length} onClick={clearCart}><Trash2 />Kosongkan <kbd>F9</kbd></Button></div>
         <div className="sale-cart-body" ref={cartBodyRef} id="sale-active-cart" role="tabpanel" aria-labelledby={`sale-draft-tab-${drafts.active}`}>
-          <ErrorBox>{!modal && (error || drafts.storageError)}</ErrorBox>
           {pending && !modal && <div className="sale-pending" role="status"><p>Hasil transaksi sebelumnya belum terkonfirmasi.</p><Button disabled={busy} onClick={() => void save(true)}>Periksa / lanjutkan transaksi</Button></div>}
-          {!cart.length ? <div className="sale-empty"><ShoppingBasket /><strong>Belum ada barang</strong><p>Cari atau scan produk untuk mulai berjualan.</p></div> : cart.map(line => <article className="sale-cart-line" key={line.product.id} data-active={selectedCart === line.product.id}>
+          {!cart.length ? <div className="sale-empty"><ShoppingBasket /><strong>Belum ada barang</strong><p>Cari atau scan produk untuk mulai berjualan.</p></div> : cart.map(line => <article className="sale-cart-line" key={line.product.id} data-active={selectedCart === line.product.id} onClick={event => {
+            if (locked || (event.target as Element).closest('button,input')) return
+            setSelectedCart(line.product.id)
+            const input = quantityRefs.current.get(line.product.id)
+            input?.focus({ preventScroll: true }); input?.select()
+          }}>
             <div className="sale-line-name"><h2 title={line.product.nama}>{line.product.nama}</h2><p>{money(line.price)}</p></div>
             <div className="sale-quantity"><Button variant="outline" className="quantity-minus" disabled={locked} aria-label={`Kurangi ${line.product.nama}`} onClick={() => changeQuantity(line.product.id, -1)}><Minus /></Button>
               <input ref={node => { if (node) quantityRefs.current.set(line.product.id, node); else quantityRefs.current.delete(line.product.id) }} aria-label={`Jumlah ${line.product.nama}`} inputMode="decimal" disabled={locked} value={line.quantity} onFocus={event => { setSelectedCart(line.product.id); event.target.select() }} onChange={event => { if (/^(\d+(?:\.\d*)?)?$/.test(event.target.value)) update(line.product.id, { quantity: event.target.value }) }} onKeyDown={event => { if (event.key === 'Enter' || event.key === 'Escape') { event.preventDefault(); focusSearch() } if (event.key === 'ArrowUp' || event.key === 'ArrowDown') { event.preventDefault(); changeQuantity(line.product.id, event.key === 'ArrowUp' ? 1 : -1) } }} />
@@ -389,7 +398,7 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
         </div>
       </section>
 
-      <section id="sale-mobile-catalog" className="sale-panel sale-catalog" aria-label="Daftar produk"><div className="sale-search-area">
+      <section id="sale-panel-products" role="tabpanel" className="sale-panel sale-catalog" aria-labelledby="sale-tab-products"><div className="sale-search-area">
         <form className="sale-search" onSubmit={event => { event.preventDefault(); void chooseSearchResult() }}><Search /><input ref={searchRef} type="search" autoComplete="off" aria-label="Cari atau scan produk penjualan" aria-controls="sale-products" placeholder="Cari nama produk atau scan barcode..." disabled={locked} value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => {
           if (event.isDefaultPrevented() || event.nativeEvent.isComposing) return
           if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -399,14 +408,17 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
           }
           if (event.key === 'Escape') { event.preventDefault(); setQuery(''); setError('') }
         }} /><Barcode /></form>
+        <details className="sale-product-options"><summary>Pengaturan produk</summary>
         <div className="sale-sort-toolbar"><span>Urutkan produk</span><SearchSelect aria-label="Urutan produk penjualan" value={order.sort} disabled={locked} className="sale-sort-trigger" onValueChange={value => setOrder(previous => ({ ...previous, sort: value as ProductSort }))}>{productSortOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</SearchSelect><label className="sale-favorites-filter"><input type="checkbox" checked={order.favoritesFirst} disabled={locked} onChange={event => setOrder(previous => ({ ...previous, favoritesFirst: event.target.checked }))} />Utamakan favorit</label><button type="button" className="sale-sort-refresh" disabled={popularityLoading || locked} onClick={() => setPopularityRevision(value => value + 1)}>{popularityLoading ? 'Memuat…' : 'Perbarui terlaris'}</button></div>
-        {favoriteBusyID !== null && <span role="status" className="sr-only">Menyimpan favorit produk…</span>}
         {popularityError && <p className="sale-sort-note" role="status">Data terlaris belum berhasil dimuat. Favorit tetap bisa diatur. Klik Perbarui terlaris untuk mencoba lagi.</p>}
-        <div className="sale-catalog-tools"><details className="sale-shortcuts"><summary>Shortcut keyboard</summary><p className="sale-key-hint"><kbd>↑</kbd><kbd>↓</kbd> pilih · <kbd>Enter</kbd> tambah · <kbd>F3</kbd> jumlah · <kbd>F4</kbd> tunai · <kbd>F5</kbd> QRIS · <kbd>F6</kbd> debit · <kbd>F9</kbd> kosongkan · <kbd>F10</kbd> buka laci · <kbd>Alt 1–9</kbd> pindah transaksi</p></details><span className="sale-result-count">{filtered.length.toLocaleString('id-ID')} produk</span></div>
-      </div><SaleCatalog products={filtered} categories={categories} highlight={highlight} locked={locked} active={active} onHighlight={setHighlight} onAdd={add} favorites={favorites} onToggleFavorite={toggleFavorite} favoriteEditable={user.peran === 'PEMILIK'} favoriteBusyID={favoriteBusyID} /></section>
+        <p className="sale-result-count">{filtered.length.toLocaleString('id-ID')} produk</p>
+        </details>
+        {favoriteBusyID !== null && <span role="status" className="sr-only">Menyimpan favorit produk…</span>}
+        <div className="sale-catalog-tools"><details className="sale-shortcuts"><summary>Shortcut keyboard</summary><p className="sale-key-hint"><kbd>↑</kbd><kbd>↓</kbd> pilih · <kbd>Enter</kbd> tambah · <kbd>F3</kbd> jumlah · <kbd>F4</kbd> tunai · <kbd>F5</kbd> QRIS · <kbd>F6</kbd> debit · <kbd>F9</kbd> kosongkan · <kbd>F10</kbd> buka laci · <kbd>Alt 1–9</kbd> pindah transaksi</p></details></div>
+      </div><SaleCatalog loading={loading} products={filtered} categories={categories} highlight={highlight} locked={locked} active={active} onHighlight={setHighlight} onAdd={add} favorites={favorites} onToggleFavorite={toggleFavorite} favoriteEditable={user.peran === 'PEMILIK'} favoriteBusyID={favoriteBusyID} /></section>
     </SaleLayout>
 
-    {modal && active && <div className="sale-modal-backdrop"><section ref={dialogRef} className="sale-payment-dialog" tabIndex={-1} role="dialog" aria-modal="true" aria-busy={paymentStage === 'saving'} aria-labelledby="sale-payment-title">
+    <ResponsivePanel open={modal && active} title="Pembayaran" dirty={false} busy={busy || paymentStage === 'saving' || Boolean(pending && !completed)} onClose={finish}><section ref={dialogRef} className="sale-payment-content" tabIndex={-1} aria-busy={paymentStage === 'saving'}>
       {completed || (changePreview && paymentStage !== 'confirm') ? <div className="sale-success">
         <p className="sale-eyebrow">{completed ? `PEMBAYARAN ${completed.status === 'SELESAI' ? 'BERHASIL' : completed.status}` : paymentStage === 'failed' ? 'PEMBAYARAN BELUM TERKONFIRMASI' : 'PEMBAYARAN SEDANG DISIMPAN'}</p>
         <h2 id="sale-payment-title">Kembalian</h2>
@@ -429,6 +441,6 @@ export function SaleCheckout({ user, data, active, operationalDateHost, onSaved,
         <Button type="submit" data-autofocus={method?.jenis !== 'CASH' || Boolean(pending) ? true : undefined} className="sale-complete" disabled={busy || (!pending && (!valid || !sufficient))}><WalletCards />{busy ? 'Menyimpan…' : pending ? 'Periksa / lanjutkan transaksi' : 'Selesaikan Pembayaran'}</Button>
         <p className="sale-dialog-hint"><kbd>Enter</kbd> konfirmasi · <kbd>Esc</kbd> kembali</p>
       </form>}
-    </section></div>}
+    </section></ResponsivePanel>
   </div>
 }

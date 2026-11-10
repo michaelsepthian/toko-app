@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Archive, Banknote, History as HistoryIcon, LogOut, Moon, Menu, RefreshCw, Settings, ShoppingBasket, Store, Sun, Truck, WalletCards, X } from 'lucide-react'
+import { Archive, Banknote, CalendarDays, History as HistoryIcon, LogOut, Moon, Menu, RefreshCw, Settings, ShoppingBasket, Store, Sun, Truck, WalletCards, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { api, masterData, message, logout } from '@/lib/api'
 import type { Data, Stock, Transaction, User } from '@/lib/types'
@@ -13,20 +13,27 @@ import { Products, Masters, Inventory } from './pos/masters'
 import { History } from './pos/history'
 import { Devices } from './pos/devices'
 import { ErrorBox } from './pos/common'
+import { ShoppingPlan } from './pos/shopping-plan'
+import { clearActionHash, useContentMotion, useDismissInteractions } from '@/lib/ui-interactions'
+import { useNotice } from '@/lib/use-notice'
 
 const initialData: Data = { products: [], categories: [], units: [], payments: [], sources: [], stocks: [] }
-type View = 'cashier' | 'purchases' | 'products' | 'history' | 'masters' | 'devices'
+type View = 'cashier' | 'purchases' | 'products' | 'history' | 'masters' | 'devices' | 'shopping'
 export function PosApp() { return <AuthGate>{user => <Workspace key={user.id} user={user} />}</AuthGate> }
 
 function Workspace({ user }: { user: User }) {
   const owner = user.peran === 'PEMILIK'
   const [view, setView] = useState<View>('cashier'); const [data, setData] = useState<Data>(initialData)
-  const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [notice, setNotice] = useState('')
+  const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [notice, setNotice] = useNotice()
   const [dark, setDark] = useState(false); const [devices, setDevices] = useState<DeviceSettings>(defaultDevices)
   const [lastSale, setLastSale] = useState<Transaction | null>(null)
   const headerRef = useRef<HTMLDivElement>(null)
   const drawerBusy = useRef(false)
   const moreRef = useRef<HTMLDetailsElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  useContentMotion(contentRef, view)
+  useDismissInteractions()
+  useEffect(() => { clearActionHash() }, [])
   const [operationalDateHost, setOperationalDateHost] = useState<HTMLDivElement | null>(null)
   useEffect(() => {
     setDevices(readDevices())
@@ -56,8 +63,11 @@ function Workspace({ user }: { user: User }) {
     document.addEventListener('keydown', escape, true)
     return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape, true) }
   }, [])
-  useEffect(() => { if (!notice) return; const timer = window.setTimeout(() => setNotice(''),7000); return () => window.clearTimeout(timer) },[notice])
-  function navigate(next: View) { setView(next); if (moreRef.current) moreRef.current.open = false }
+  function navigate(next: View) {
+    document.querySelectorAll<HTMLDetailsElement>('.pos-more[open], .shopping-item-menu[open], .sale-shortcuts[open], .sale-product-options[open]').forEach(menu => { menu.open = false })
+    window.dispatchEvent(new Event('toko-close-popovers'))
+    clearActionHash(); setView(next)
+  }
   function toggleTheme() { const next = !dark; setDark(next); document.documentElement.classList.toggle('dark',next); localStorage.setItem('toko:theme',next ? 'dark' : 'light') }
 
   const refresh = useCallback(async (checkVersion = false, force = false) => {
@@ -88,7 +98,7 @@ function Workspace({ user }: { user: User }) {
   async function drawer() {
     if (drawerBusy.current) return
     drawerBusy.current = true; setError('')
-    try { setNotice(await openDrawer(devices)) } catch (err) { setError(message(err)) }
+    try { setNotice(await openDrawer(devices)) } catch (err) { setNotice(`Buka laci belum berhasil: ${message(err)}`) }
     finally { drawerBusy.current = false }
   }
   useEffect(() => {
@@ -115,8 +125,9 @@ function Workspace({ user }: { user: User }) {
     { view:'cashier',title:'Penjualan',icon:ShoppingBasket },
     { view:'products',title:'Produk',icon:Archive },
     { view:'history',title:'Riwayat',icon:HistoryIcon },
+    { view:'shopping',title:'Rencana Belanja',icon:CalendarDays },
   ]
-  return <main className="min-h-screen bg-background text-foreground">
+  return <main className="pos-app min-h-screen bg-background text-foreground">
     <div ref={headerRef}>
       <header className="pos-topbar"><div className="pos-topbar-inner">
         <div className="pos-brand"><div className="pos-brand-icon">{loading ? <RefreshCw className="animate-spin" aria-label="Memuat data" /> : <Store />}</div><div><h1>{devices.storeName}</h1><p>{devices.address}</p><StoreClock /></div></div>
@@ -134,19 +145,22 @@ function Workspace({ user }: { user: User }) {
               </div></details>
             </div>
           </div>
-          <div className="pos-primary-nav">{primary.map(tab => <Button key={tab.view} variant={view === tab.view ? 'default' : 'ghost'} aria-current={view === tab.view ? 'page' : undefined} onClick={() => navigate(tab.view)}><tab.icon />{tab.title}</Button>)}</div>
+          <div className="pos-primary-nav">{primary.map(tab => <Button key={tab.view} variant={view === tab.view ? 'default' : 'ghost'} aria-label={tab.title} aria-current={view === tab.view ? 'page' : undefined} onClick={() => navigate(tab.view)}><tab.icon />{tab.view === 'shopping' ? <span><span className="shopping-nav-prefix">Rencana </span>Belanja</span> : tab.title}</Button>)}</div>
         </nav>
       </div></header>
       {error && <div className="pos-error-banner flex items-center gap-2"><div className="flex-1"><ErrorBox>{error}</ErrorBox></div><Button variant="ghost" aria-label="Tutup pesan kesalahan" onClick={() => setError('')}><X /></Button></div>}
     </div>
     {notice && <div role="status" className="pos-toast"><span>{notice}</span><button aria-label="Tutup pemberitahuan" onClick={() => setNotice('')}><X className="size-4" /></button></div>}
-    <SaleCheckout user={user} data={data} active={view === 'cashier'} operationalDateHost={operationalDateHost} onSaved={saved} onReprint={print} onProductUpdated={product => setData(previous => ({ ...previous, products: previous.products.map(row => row.id === product.id ? product : row) }))} />
-    {owner && <Checkout user={user} data={data} purchase active={view === 'purchases'} onSaved={saved} />}
+    <div ref={contentRef} className="pos-view-content">
+    <SaleCheckout loading={loading} user={user} data={data} active={view === 'cashier'} operationalDateHost={operationalDateHost} onSaved={saved} onReprint={print} onProductUpdated={product => setData(previous => ({ ...previous, products: previous.products.map(row => row.id === product.id ? product : row) }))} />
+    {owner && <Checkout loading={loading} user={user} data={data} purchase active={view === 'purchases'} onSaved={saved} />}
     {view === 'purchases' && owner && <Inventory data={data} refresh={refreshStocks} />}
-    {view === 'products' && <Products data={data} refresh={refresh} owner={owner} />}
+    {view === 'products' && <Products loading={loading} data={data} refresh={refresh} owner={owner} />}
+    <ShoppingPlan active={view === 'shopping'} owner={owner} data={data} masterLoading={loading} />
     {view === 'history' && <History data={data} owner={owner} refresh={refresh} print={print} storeName={devices.storeName} userID={user.id} />}
     {view === 'masters' && owner && <Masters data={data} refresh={refresh} />}
     {view === 'devices' && owner && <Devices settings={devices} onChange={setDevices} />}
+    </div>
   </main>
 }
 

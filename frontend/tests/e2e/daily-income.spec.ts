@@ -67,6 +67,7 @@ test('laporan lama tetap tersimpan tetapi Muat ulang menampilkan pendapatan terb
 
 test('alokasi belanja besok mulai kosong dan boleh tidak diisi ketika menyimpan laporan', async ({ page }) => {
   await incomeSummary(page)
+  await page.getByRole('button', { name: 'Isi Ringkasan', exact: true }).click()
   const actual = page.getByLabel('Total uang aktual yang dihitung pemilik', { exact: true })
   const budget = page.getByLabel('Uang belanja toko untuk besok (opsional)', { exact: true })
   await expect(actual).toHaveValue('')

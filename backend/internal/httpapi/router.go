@@ -20,10 +20,12 @@ import (
 func New(c config.Config, store *repository.Store) http.Handler {
 	api := http.NewServeMux()
 	svc := &service.Service{Store: store}
+	registerUsers(api, svc)
 	catalog := registerCatalog(api, store.DB)
 	registerMasters(api, store.DB, catalog.invalidate)
 	registerDailySummaries(api, svc)
 	registerCashPurchaseNotes(api, svc)
+	registerShoppingPlans(api, svc)
 	api.HandleFunc("POST /api/v1/auth/logout", func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Fields(r.Header.Get("Authorization"))
 		if len(parts) == 2 {
@@ -193,7 +195,15 @@ func registerTransactions(mux *http.ServeMux, svc *service.Service, purchase boo
 				fail(w, err)
 				return
 			}
-			respond(w, 200, row)
+			var cashier struct{ Nama string }
+			if err := svc.Store.DB.WithContext(r.Context()).Model(&model.Pengguna{}).Select("nama").Where("id = ?", row.PenggunaID).Scan(&cashier).Error; err != nil {
+				fail(w, err)
+				return
+			}
+			respond(w, 200, struct {
+				model.Penjualan
+				NamaKasir string `json:"nama_kasir"`
+			}{Penjualan: row, NamaKasir: cashier.Nama})
 		}
 	}))
 	mux.HandleFunc("POST /api/v1/"+path+"/{id}/batal", owner(func(w http.ResponseWriter, r *http.Request) {

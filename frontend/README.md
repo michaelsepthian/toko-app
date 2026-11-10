@@ -79,6 +79,26 @@ tetap memakai `.env.local` seperti sebelumnya.
 
 ## Menu dan penggunaan
 
+### Rencana belanja
+
+Menu **Rencana Belanja** tersedia untuk pemilik dan kasir (di mobile disingkat
+**Belanja**). Pilih tanggal pada kalender satu bulan, buka **Tambah belanjaan**,
+pilih tempat beli, lalu isi beberapa baris sebelum menyimpan. Tempat beli boleh
+**Belum ditentukan**. Pilih produk yang sudah ada atau **Lainnya** untuk nama
+barang bebas tanpa membuat produk master.
+
+Jumlah dan satuan barang bebas boleh kosong. Jumlah terisi harus lebih dari nol;
+jika kosong, jumlah/satuan tidak ditampilkan dalam daftar. Pemilik dan kasir
+dapat checklist serta membatalkannya. Hanya pemilik memiliki aksi edit, hapus,
+dan pindah tempat beli/tanggal. Gunakan **Pilih barang** untuk pemindahan massal;
+pilihan pemindahan terpisah dari checklist sudah dibeli.
+
+Di mobile, kalender tetap tujuh kolom; form banyak baris menjadi kartu dan dialog
+pemindahan menjadi panel bawah. Checklist tidak mencatat stok atau pengeluaran.
+Tekan **Muat ulang** untuk mengambil perubahan pengguna lain. Database lama
+memerlukan migrasi `../database/migrations/20261110_rencana_belanja.sql` sebelum
+menjalankan versi ini.
+
 ### Tanggal pendapatan dan pembatalan
 
 Pada menu Penjualan, **Tanggal pendapatan (WIB)** menentukan hari pemasukan masuk
@@ -119,6 +139,12 @@ Halaman penjualan menggunakan dua panel mengikuti tampilan kasir awal: keranjang
 di kiri, katalog di kanan, dan ringkasan pembayaran tetap di bawah keranjang.
 Di desktop, kedua panel menggulir sendiri agar tombol Bayar tetap terlihat.
 Menu Pembelian, Data Master, Perangkat, dan Keluar tersedia di tombol **…** pada header.
+
+Di penjualan mobile/WebView, swipe pada daftar produk atau keranjang terlebih
+dahulu menaikkan header toko sampai tab **Produk / Keranjang** menempel di atas.
+Sisa gestur meneruskan scroll daftar. Pencarian tetap terlihat di bawah tab
+Produk; pada Keranjang, ringkasan dan tombol Bayar tetap terlihat. Beralih tab
+tidak memunculkan kembali header atau menghapus isi keranjang.
 
 Alur keyboard: langsung ketik saat tidak mengedit field lain untuk memulai pencarian;
 ↑/↓ memilih produk, Enter menambahkan hasil yang disorot, Esc mengosongkan pencarian.
@@ -228,7 +254,21 @@ Produk dengan stok nol/negatif tetap dapat dipilih dan dijual. Peringatan muncul
 
 ### Lebar panel penjualan
 
+Area kerja mengikuti lebar jendela, termasuk monitor QHD, ultrawide, dan 4K; tidak
+lagi dibatasi 1920 px. Header, Penjualan, Pembelian, Produk, Riwayat/Ringkasan,
+Data Master, dan Perangkat memakai ruang layar dengan jarak tepi yang konsisten.
+Form login dan dialog pembayaran/detail tetap dibatasi agar nyaman dibaca.
+
 Pada layar desktop (minimal 1024 px), geser pembatas antara Daftar Belanja dan Pilih Produk ke kiri/kanan. Lebar disimpan pada browser. Pembatas juga dapat difokuskan dengan Tab lalu diatur memakai panah kiri/kanan; Home/End menuju batas minimum/maksimum. Klik dua kali mengembalikan lebar awal. Pada layar kecil, panel tetap tersusun vertikal.
+
+Jumlah kolom katalog menyesuaikan lebar panel, bukan hanya 2–3 kolom. Saat jendela
+diperkecil, kedua panel menjaga lebar minimum; ketika diperbesar lagi, rasio pilihan
+kembali dipakai. Keranjang tidak dihapus ketika ukuran berubah. Pada layar tinggi,
+halaman produk berikutnya dimuat sampai area katalog cukup terisi dan dapat digulir;
+virtualisasi tetap membatasi jumlah kartu yang dipasang di DOM.
+
+Tes browser mencakup viewport 1920×1080, 2560×1440, 3440×1440, dan 3840×2160,
+pergantian ukuran, akses produk terakhir, serta regresi layar ponsel/tablet.
 
 Metode awal adalah Tunai jika tersedia dan aktif untuk penjualan, termasuk setelah menyelesaikan transaksi. Tombol Bayar berada selebar bagian bawah Daftar Belanja; ukuran total mengikuti lebar panel.
 

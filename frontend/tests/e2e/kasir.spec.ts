@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import { jakartaDay } from '../../lib/history-date'
 
-async function mockAPI(page: Page, role = 'PEMILIK', timeoutOnce = false, stock = '10') {
+async function mockAPI(page: Page, role = 'PEMILIK', timeoutOnce = false, stock = '10', productCount = 1) {
   const calls: { path: string; body: Record<string, unknown> }[] = []
   const product = { id: 1, nama: 'Beras Ramos', sku: 'BR-001', barcode: '0012345678901', harga_jual: '10000', stok_minimum: '2', kategori_id: 1, satuan_id: 1, aktif: true }
   const methods = [
@@ -9,7 +9,7 @@ async function mockAPI(page: Page, role = 'PEMILIK', timeoutOnce = false, stock 
     { id: 2, nama: 'QRIS', jenis: 'QRIS', tarif_persen: '0.7', tarif_tetap: '0', penanggung_biaya: 'PELANGGAN', aktif: true, untuk_penjualan: true, untuk_pembelian: false },
     { id: 3, nama: 'Transfer Supplier', jenis: 'TRANSFER', tarif_persen: '0', tarif_tetap: '2500', penanggung_biaya: 'TOKO', aktif: true, untuk_penjualan: false, untuk_pembelian: true },
   ]
-  const products = [product]
+  const products = Array.from({ length: productCount }, (_, index) => ({ ...product, id: index + 1, ...(index ? { nama: `Produk Uji ${index + 1}`, sku: `TEST-${index + 1}`, barcode: String(1000000000000 + index) } : {}) }))
   let version = 1
   let dropped = false
   const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization,content-type', 'access-control-allow-methods': 'GET,POST,PUT,OPTIONS' }
@@ -71,6 +71,19 @@ test('scan exact, cash checkout, dan payload API', async ({ page }) => {
   expect(sale.body.jumlah_dibayar).toBe('20000'); expect(sale.body).not.toHaveProperty('subtotal_barang')
   expect(sale.body.idempotency_key).toMatch(/^[a-f0-9-]{36}$/)
   await page.screenshot({ path: 'test-results/kasir-payment.png', fullPage: true })
+})
+
+test('klik nama pada daftar belanja kasir memilih baris dan menyeleksi jumlah', async ({ page }) => {
+  await mockAPI(page)
+  await page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }).click()
+  const line = page.locator('.sale-cart-line').filter({ hasText: 'Beras Ramos' })
+  await line.getByRole('heading', { name: 'Beras Ramos', exact: true }).click()
+  const quantity = line.getByLabel('Jumlah Beras Ramos', { exact: true })
+  await expect(quantity).toBeFocused()
+  await expect(line).toHaveAttribute('data-active', 'true')
+  expect(await quantity.evaluate(input => [(input as HTMLInputElement).selectionStart, (input as HTMLInputElement).selectionEnd])).toEqual([0, 1])
+  await line.getByRole('button', { name: 'Tambah Beras Ramos', exact: true }).click()
+  await expect(quantity).toHaveValue('2')
 })
 
 test('pembelian mencatat sumber, harga beli dan metode yang sesuai', async ({ page }) => {
@@ -174,6 +187,7 @@ test('penjualan menyembunyikan stok dan tetap dapat dibayar; F9 kosongkan keranj
 test('dropdown produk mencari pilihan dengan keyboard', async ({ page }) => {
   await mockAPI(page)
   await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Produk', exact: true }).click()
+  await page.getByRole('button', { name: 'Tambah Produk', exact: true }).click()
   await page.getByRole('button', { name: 'Kategori', exact: true }).click()
   const search = page.getByRole('combobox', { name: 'Cari kategori' })
   await expect(search).toBeFocused()
@@ -192,8 +206,34 @@ test('F10 memakai jalur buka laci dan menampilkan hasilnya', async ({ page }) =>
   await mockAPI(page, 'KASIR')
   // Mode browser default belum mengaktifkan QZ Tray. Pesannya membuktikan handler shortcut dipanggil tanpa akses perangkat.
   await page.keyboard.press('F10')
-  await expect(page.getByRole('alert').filter({ hasText: 'QZ Tray' })).toBeVisible()
+  await expect(page.locator('.pos-toast')).toContainText('QZ Tray')
+  await expect(page.locator('.pos-error-banner')).toHaveCount(0)
 })
+
+for (const width of [390, 1440]) {
+  test(`perangkat laci belum sesuai menampilkan toast 5 detik tanpa mengganggu penjualan ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 })
+    await mockAPI(page, 'KASIR')
+    await page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }).click()
+    await page.clock.install({ time: new Date('2026-11-10T03:00:00Z') })
+    await page.clock.pauseAt(new Date('2026-11-10T03:00:01Z'))
+    await page.getByRole('button', { name: 'Buka Laci', exact: true }).click()
+    const notice = page.locator('.pos-toast')
+    await expect(notice).toContainText('Buka laci belum berhasil:')
+    await expect(notice).toContainText('QZ Tray')
+    await expect(page.locator('.pos-error-banner')).toHaveCount(0)
+    await page.clock.runFor(4999)
+    await expect(notice).toBeVisible()
+    await page.clock.runFor(1)
+    await expect(notice).toHaveCount(0)
+    await expect(page.getByLabel('Jumlah Beras Ramos', { exact: true })).toHaveValue('1')
+    await page.keyboard.press('F10')
+    await expect(notice).toContainText('QZ Tray')
+    await notice.getByRole('button', { name: 'Tutup pemberitahuan', exact: true }).click()
+    await expect(notice).toHaveCount(0)
+    await expect(page.locator('.pos-error-banner')).toHaveCount(0)
+  })
+}
 
 
 test('lebar panel dapat diubah horizontal dan tombol bayar tetap selebar panel', async ({ page }) => {
@@ -320,12 +360,15 @@ test('nominal form baru kosong dan diskon serta tarif kosong dikirim sebagai nol
   const calls = await mockAPI(page)
   const nav = page.getByRole('navigation', { name: 'Menu utama' })
   await nav.getByRole('button', { name: 'Produk', exact: true }).click()
+  await page.getByRole('button', { name: 'Tambah Produk', exact: true }).click()
   const price = page.getByLabel('Harga jual', { exact: true })
   await expect(price).toHaveValue('')
   await price.pressSequentially('0015000')
   await expect(price).toHaveValue('15.000')
   await price.fill('0,50')
   await expect(price).toHaveValue('0,50')
+  page.once('dialog', dialog => dialog.accept())
+  await page.getByRole('button', { name: 'Tutup form produk', exact: true }).click()
   await page.locator('.pos-more > summary').click()
   await nav.getByRole('button', { name: 'Pembelian', exact: true }).click()
   await page.getByRole('button', { name: /Sembako.*BR-001.*Beras Ramos/ }).click()
@@ -343,6 +386,7 @@ test('nominal form baru kosong dan diskon serta tarif kosong dikirim sebagai nol
   await page.locator('.pos-more > summary').click()
   await nav.getByRole('button', { name: 'Data Master', exact: true }).click()
   await page.getByRole('button', { name: 'Metode Pembayaran', exact: true }).click()
+  await page.getByRole('button', { name: 'Tambah Metode Pembayaran', exact: true }).click()
   await expect(page.getByLabel('Tarif persen', { exact: true })).toHaveValue('')
   await expect(page.getByLabel('Tarif tetap (Rp)', { exact: true })).toHaveValue('')
   await page.getByLabel('Nama metode', { exact: true }).fill('Metode tanpa biaya')
@@ -371,23 +415,43 @@ for (const width of [320, 390, 768, 1440]) {
     await noOverflow()
     await page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }).click()
     await expect(page.getByLabel('Jumlah Beras Ramos')).toHaveValue('1')
-    if (width < 1024) await page.getByRole('link', { name: /Keranjang/ }).click()
+    if (width < 1024) {
+      const tabs = page.getByRole('tablist', { name: 'Bagian penjualan' })
+      await expect(page.locator('.sale-cart')).toBeHidden()
+      await tabs.getByRole('tab', { name: /Keranjang 1/ }).click()
+      await expect(page.locator('.sale-catalog')).toBeHidden()
+      await expect(page.locator('.sale-cart')).toBeVisible()
+      await tabs.getByRole('tab', { name: 'Produk', exact: true }).click()
+      await expect(page.locator('.sale-catalog')).toBeVisible()
+      await tabs.getByRole('tab', { name: /Keranjang/ }).click()
+      await expect(page.getByLabel('Jumlah Beras Ramos')).toHaveValue('1')
+    } else {
+      await expect(page.locator('.sale-cart')).toBeVisible()
+      await expect(page.locator('.sale-catalog')).toBeVisible()
+      await expect(page.getByRole('tablist', { name: 'Bagian penjualan' })).toBeHidden()
+    }
     await noOverflow()
     await page.screenshot({ path: `test-results/mobile-sales-${width}.png`, fullPage: true })
     await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Produk', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Daftar Produk', exact: true })).toBeVisible()
-    if (width < 1024) {
-      await expect(page.getByLabel('Nama produk', { exact: true })).not.toBeVisible()
-      await page.getByRole('button', { name: 'Tambah Produk', exact: true }).click()
-      await expect(page.getByLabel('Nama produk', { exact: true })).toBeFocused()
-      await page.getByRole('button', { name: 'Tutup form' }).click()
-    }
-    await page.getByRole('button', { name: 'Edit Beras Ramos', exact: true }).click()
+    await expect(page.getByLabel('Nama produk', { exact: true })).not.toBeVisible()
+    await page.getByRole('button', { name: 'Tambah Produk', exact: true }).click()
+    await expect(page.getByRole('dialog', { name: 'Tambah Produk', exact: true })).toBeVisible()
+    await expect(page.getByLabel('Nama produk', { exact: true })).toBeFocused()
+    await page.getByRole('button', { name: 'Tutup form produk', exact: true }).click()
+    const productRow = page.getByRole('button', { name: 'Edit Beras Ramos', exact: true })
+    await productRow.getByText('Beras Ramos', { exact: true }).click()
+    await expect(page.getByRole('dialog', { name: 'Edit Produk', exact: true })).toBeVisible()
     await expect(page.getByLabel('Nama produk', { exact: true })).toHaveValue('Beras Ramos')
-    if (width < 1024) await page.getByRole('button', { name: 'Tutup form' }).click()
+    await expect(productRow.locator('svg')).toHaveCount(0)
+    await noOverflow()
+    await page.screenshot({ path: `test-results/product-editor-${width}.png` })
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(productRow).toBeFocused()
     await noOverflow()
     await page.screenshot({ path: `test-results/mobile-products-${width}.png`, fullPage: true })
-    const transaction = { id: 44, nomor: 'BILL-20261102-000044', tanggal: '2026-11-02T03:00:00Z', tanggal_pendapatan: '2026-11-01', status: 'SELESAI', metode_pembayaran_id: 1, total_tagihan: '10000', diskon_transaksi: '0', biaya_pembayaran: '0', jumlah_dibayar: '20000', kembalian: '10000', detail: [{ id: 1, nama_produk: 'Beras Ramos', jumlah: '1', harga_jual: '10000', diskon: '0', subtotal: '10000' }] }
+    const transaction = { nama_kasir: 'Siti Kasir', id: 44, nomor: 'BILL-20261102-000044', tanggal: '2026-11-02T03:00:00Z', tanggal_pendapatan: '2026-11-01', status: 'SELESAI', metode_pembayaran_id: 1, total_tagihan: '10000', diskon_transaksi: '0', biaya_pembayaran: '0', jumlah_dibayar: '20000', kembalian: '10000', detail: [{ id: 1, nama_produk: 'Beras Ramos', jumlah: '1', harga_jual: '10000', diskon: '0', subtotal: '10000' }] }
     await page.route('http://api.test/api/v1/penjualan**', route => route.fulfill({ json: { data: new URL(route.request().url()).pathname.endsWith('/44') ? transaction : [transaction] }, headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' } }))
     await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Riwayat', exact: true }).click()
     const row = page.getByRole('button', { name: `Detail ${transaction.nomor}`, exact: true })
@@ -398,6 +462,7 @@ for (const width of [320, 390, 768, 1440]) {
     await page.keyboard.press('Enter')
     const detail = page.getByRole('dialog')
     await expect(detail).toContainText('Beras Ramos')
+    await expect(detail).toContainText('Kasir: Siti Kasir')
     await expect(detail).not.toContainText('Tanggal pendapatan')
     await expect(detail).not.toContainText('Waktu pencatatan')
     await page.screenshot({ path: `test-results/mobile-detail-${width}.png` })
@@ -432,11 +497,592 @@ for (const width of [320, 1440]) {
     await expect(date).toHaveAttribute('data-picker-opens', '5')
     await date.fill('2026-10-01')
     await expect(control).toContainText('1 Oktober 2026')
-    await expect(date).toHaveAttribute('max', jakartaDay())
+    expect(await date.getAttribute('max')).toBeNull()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await page.screenshot({ path: `test-results/operational-date-${width}.png` })
   })
 }
+
+for (const width of [320, 390, 768, 1440]) {
+  test(`pembelian dan data master nyaman digunakan ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 })
+    const calls = await mockAPI(page)
+    const noOverflow = async () => {
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    }
+    await expect(page.locator('.sale-product-top .lucide-plus')).toHaveCount(0)
+    const nav = page.getByRole('navigation', { name: 'Menu utama' })
+    await page.getByLabel('Menu lainnya', { exact: true }).click()
+    await nav.getByRole('button', { name: 'Pembelian', exact: true }).click()
+    const catalog = page.locator('#purchase-panel-products')
+    const cart = page.locator('#purchase-panel-cart')
+    if (width < 1024) {
+      await expect(cart).toBeHidden()
+      await expect(catalog).toBeVisible()
+      await expect(page.getByRole('tablist', { name: 'Bagian pembelian' })).toBeVisible()
+      await expect(page.locator('.purchase-inventory')).toBeHidden()
+    } else {
+      await expect(cart).toBeVisible()
+      await expect(catalog).toBeVisible()
+      await expect(page.getByRole('tablist', { name: 'Bagian pembelian' })).toBeHidden()
+    }
+    await noOverflow()
+    await page.screenshot({ path: `test-results/purchase-catalog-${width}.png`, fullPage: true })
+    await catalog.getByRole('button', { name: /Beras Ramos/ }).click()
+    if (width < 1024) {
+      const tabs = page.getByRole('tablist', { name: 'Bagian pembelian' })
+      await tabs.getByRole('tab', { name: /Keranjang 1/ }).click()
+      await expect(catalog).toBeHidden()
+      await expect(cart).toBeVisible()
+      await expect(page.locator('.purchase-inventory')).toBeVisible()
+    }
+    const quantity = page.getByLabel('Jumlah Beras Ramos', { exact: true })
+    await expect(quantity).toHaveValue('1')
+    expect((await quantity.boundingBox())!.width).toBeGreaterThan(40)
+    await cart.getByRole('button', { name: 'Tambah Beras Ramos', exact: true }).click()
+    await expect(quantity).toHaveValue('2')
+    await cart.getByRole('button', { name: 'Kurangi Beras Ramos', exact: true }).click()
+    await page.getByLabel('Harga beli Beras Ramos', { exact: true }).fill('7000')
+    if (width < 1024) {
+      const tabs = page.getByRole('tablist', { name: 'Bagian pembelian' })
+      await tabs.getByRole('tab', { name: 'Produk', exact: true }).click()
+      await expect(cart).toBeHidden()
+      await tabs.getByRole('tab', { name: /Keranjang/ }).click()
+      await expect(page.getByLabel('Harga beli Beras Ramos', { exact: true })).toHaveValue('7.000')
+      await expect(quantity).toHaveValue('1')
+    }
+    await page.getByRole('button', { name: 'Tempat beli / sales', exact: true }).click()
+    await page.getByRole('option', { name: 'Grosir Makmur (TOKO)' }).click()
+    await noOverflow()
+    await page.screenshot({ path: `test-results/purchase-cart-${width}.png`, fullPage: true })
+    await page.getByRole('button', { name: /Simpan Pembelian · F8/ }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toContainText('Konfirmasi Pembelian')
+    await noOverflow()
+    await dialog.getByRole('button', { name: 'Konfirmasi & Simpan' }).click()
+    await expect(dialog).toContainText('Transaksi tersimpan')
+    expect(calls.find(call => call.path === '/pembelian')?.body.sumber_pembelian_id).toBe(1)
+    await dialog.getByRole('button', { name: 'Selesai', exact: true }).click()
+    await page.getByLabel('Menu lainnya', { exact: true }).click()
+    await nav.getByRole('button', { name: 'Data Master', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Tambah kategori', exact: true })).toBeVisible()
+    await noOverflow()
+    await page.getByRole('button', { name: 'Tempat Beli / Sales', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Daftar Tempat Beli / Sales' })).toBeVisible()
+    await page.getByRole('button', { name: 'Edit Grosir Makmur', exact: true }).click()
+    await expect(page.getByLabel('Nama tempat beli / sales', { exact: true })).toHaveValue('Grosir Makmur')
+    await expect(page.getByLabel('Nama tempat beli / sales', { exact: true })).toBeFocused()
+    await noOverflow()
+    await page.getByRole('button', { name: 'Tutup Edit Tempat Beli / Sales', exact: true }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Tambah Tempat Beli / Sales', exact: true }).click()
+    await expect(page.getByLabel('Nama tempat beli / sales', { exact: true })).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Metode Pembayaran', exact: true }).click()
+    await page.getByRole('button', { name: 'Edit Transfer Supplier', exact: true }).click()
+    await expect(page.getByLabel('Nama metode', { exact: true })).toHaveValue('Transfer Supplier')
+    await expect(page.getByLabel('Nama metode', { exact: true })).toBeFocused()
+    await noOverflow()
+    await page.screenshot({ path: `test-results/master-payments-${width}.png`, fullPage: true })
+    const updateRequest = page.waitForRequest(request => request.method() === 'PUT' && request.url().endsWith('/metode-pembayaran/3'))
+    await page.getByRole('button', { name: 'Simpan Metode', exact: true }).click()
+    expect((await updateRequest).postDataJSON().nama).toBe('Transfer Supplier')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Tambah Metode Pembayaran', exact: true }).click()
+    await expect(page.getByLabel('Nama metode', { exact: true })).toHaveValue('')
+  })
+}
+
+test('tab mobile mendukung keyboard, pembayaran, dan pergantian ukuran layar', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockAPI(page)
+  const tabs = page.getByRole('tablist', { name: 'Bagian penjualan' })
+  const products = tabs.getByRole('tab', { name: 'Produk', exact: true })
+  const cart = tabs.getByRole('tab', { name: /Keranjang/ })
+  const search = page.getByLabel('Cari atau scan produk penjualan', { exact: true })
+  await page.screenshot({ path: 'test-results/mobile-product-tab.png', fullPage: true })
+  await search.fill('99999999999')
+  await search.press('Enter')
+  await expect(page.getByRole('alert').filter({ hasText: 'Barcode' })).toBeVisible()
+  await search.fill('Beras')
+  await page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }).click()
+  await expect(products).toHaveAttribute('aria-selected', 'true')
+  await expect(cart).toContainText('1')
+  await products.focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(cart).toBeFocused()
+  await expect(page.locator('.sale-catalog')).toBeHidden()
+  await page.keyboard.press('F2')
+  await expect(search).toBeFocused()
+  await expect(products).toHaveAttribute('aria-selected', 'true')
+  await page.keyboard.press('F3')
+  await expect(page.getByLabel('Jumlah Beras Ramos')).toBeFocused()
+  await expect(cart).toHaveAttribute('aria-selected', 'true')
+  await page.setViewportSize({ width: 1024, height: 844 })
+  await expect(tabs).toBeHidden()
+  await expect(page.locator('.sale-catalog')).toBeVisible()
+  await expect(page.locator('.sale-cart')).toBeVisible()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page.locator('.sale-catalog')).toBeHidden()
+  await expect(page.getByLabel('Jumlah Beras Ramos')).toHaveValue('1')
+  await page.screenshot({ path: 'test-results/mobile-cart-tab.png', fullPage: true })
+  await page.getByRole('button', { name: /^Bayar/ }).click()
+  await page.getByRole('dialog').getByLabel('Print struk setelah pembayaran').uncheck()
+  await page.getByLabel('Uang diterima').fill('20000')
+  await page.getByRole('button', { name: 'Selesaikan Pembayaran', exact: true }).click()
+  await expect(page.getByRole('dialog')).toContainText('PEMBAYARAN BERHASIL')
+})
+
+
+for (const width of [390, 1440]) {
+  test(`tanggal operasional masa depan bisa disimpan ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 })
+    const calls = await mockAPI(page)
+    const date = page.getByLabel('Tanggal operasional (WIB)', { exact: true })
+    expect(await date.getAttribute('max')).toBeNull()
+    await date.fill('2099-12-31')
+    await expect(date).toHaveAttribute('aria-invalid', 'false')
+    await page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }).click()
+    if (width < 1024) await page.getByRole('tablist', { name: 'Bagian penjualan' }).getByRole('tab', { name: /Keranjang/ }).click()
+    await page.getByRole('button', { name: /^Bayar/ }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toContainText('31 Desember 2099')
+    await dialog.getByLabel('Print struk setelah pembayaran').uncheck()
+    await page.getByLabel('Uang diterima').fill('20000')
+    await page.getByRole('button', { name: 'Selesaikan Pembayaran', exact: true }).click()
+    await expect(dialog).toContainText('PEMBAYARAN BERHASIL')
+    expect(calls.find(call => call.path === '/penjualan')?.body.tanggal_pendapatan).toBe('2099-12-31')
+  })
+}
+
+
+for (const width of [390, 1440]) {
+  test(`edit produk melalui baris dan simpan modal ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 })
+    await mockAPI(page)
+    await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Produk', exact: true }).click()
+    const row = page.getByRole('button', { name: 'Edit Beras Ramos', exact: true })
+    await row.focus()
+    await page.keyboard.press('Enter')
+    const dialog = page.getByRole('dialog', { name: 'Edit Produk', exact: true })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByLabel('Nama produk', { exact: true })).toBeFocused()
+    await dialog.getByLabel('Harga jual', { exact: true }).fill('12000')
+    await dialog.getByRole('button', { name: 'Kategori', exact: true }).click()
+    await page.getByRole('option', { name: 'Sembako', exact: true }).click()
+    let attempts = 0
+    const payloads: Record<string, unknown>[] = []
+    await page.route('http://api.test/api/v1/produk/1', async route => {
+      if (route.request().method() === 'OPTIONS') { await route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'PUT,OPTIONS' } }); return }
+      payloads.push(route.request().postDataJSON())
+      attempts++
+      await route.fulfill({ status: attempts === 1 ? 400 : 200, json: attempts === 1 ? { error: { message: 'Produk belum dapat disimpan' } } : { data: { id: 1, ...payloads.at(-1) } }, headers: { 'access-control-allow-origin': '*' } })
+    })
+    await dialog.getByRole('button', { name: 'Simpan Produk', exact: true }).click()
+    await expect(dialog.getByRole('alert')).toContainText('Produk belum dapat disimpan')
+    await expect(dialog.getByLabel('Harga jual', { exact: true })).toHaveValue('12.000')
+    await dialog.getByRole('button', { name: 'Simpan Produk', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(page.getByRole('status')).toContainText('Produk tersimpan')
+    expect(payloads.at(-1)).toMatchObject({ nama: 'Beras Ramos', harga_jual: '12000', kategori_id: 1, satuan_id: 1 })
+  })
+}
+
+test('kasir melihat daftar produk tanpa akses modal edit', async ({ page }) => {
+  await mockAPI(page, 'KASIR')
+  await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Produk', exact: true }).click()
+  await expect(page.locator('.product-list-row')).toContainText('Beras Ramos')
+  await expect(page.getByRole('button', { name: 'Edit Beras Ramos', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Tambah Produk', exact: true })).toHaveCount(0)
+  await page.locator('.product-list-row').click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+})
+
+for (const width of [320, 1440]) {
+  test(`pemilih tanggal riwayat seragam dengan tanggal operasional ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 })
+    await page.addInitScript(() => {
+      Object.defineProperty(HTMLInputElement.prototype, 'showPicker', { configurable: true, value() {
+        this.dataset.pickerOpens = String(Number(this.dataset.pickerOpens ?? 0) + 1)
+      } })
+    })
+    await mockAPI(page)
+    await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Riwayat', exact: true }).click()
+    const date = page.getByLabel('Tanggal penjualan (WIB)', { exact: true })
+    await expect(date).toBeEnabled()
+    const control = page.locator('.history-date-control')
+    const bounds = (await control.boundingBox())!
+    for (const [index, position] of [{ x: 5, y: 5 }, { x: bounds.width / 2, y: bounds.height / 2 }, { x: bounds.width - 5, y: bounds.height - 5 }].entries()) {
+      await control.click({ position })
+      await expect(date).toHaveAttribute('data-picker-opens', String(index + 1))
+      await page.keyboard.press('Escape')
+    }
+    await date.press('Enter')
+    await expect(date).toHaveAttribute('data-picker-opens', '4')
+    await date.press('Space')
+    await expect(date).toHaveAttribute('data-picker-opens', '5')
+    const request = page.waitForRequest(request => request.method() === 'GET' && new URL(request.url()).searchParams.get('tanggal') === '2099-12-31')
+    await date.fill('2099-12-31')
+    await request
+    await expect(control).toContainText('31 Desember 2099')
+    await expect(date).toBeEnabled()
+    expect(await date.getAttribute('max')).toBeNull()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await page.screenshot({ path: `test-results/history-date-control-${width}.png`, fullPage: true })
+    await page.getByRole('button', { name: 'Hari ini', exact: true }).click()
+    await expect(date).toHaveValue(jakartaDay())
+  })
+}
+
+for (const width of [320, 390]) {
+  test(`search produk tetap terlihat saat scroll mobile ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 620 })
+    await mockAPI(page, 'PEMILIK', false, '10', 100)
+    const saleSearch = page.getByLabel('Cari atau scan produk penjualan', { exact: true })
+    await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight))
+    const visibleSearch = async (selector: string, minimumTop: number) => {
+      await expect.poll(async () => {
+        const bounds = (await page.locator(selector).boundingBox())!
+        return bounds.y >= minimumTop - 1 && bounds.y + bounds.height <= 620
+      }).toBe(true)
+    }
+    await visibleSearch('.sale-search', 65)
+    await page.locator('.sale-virtual-catalog').evaluate(element => { element.scrollTop = 1800 })
+    await visibleSearch('.sale-search', 65)
+    await saleSearch.fill('Beras')
+    await expect(page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true })).toBeVisible()
+    await page.screenshot({ path: `test-results/sticky-sales-search-${width}.png` })
+    await page.evaluate(() => scrollTo(0, 0))
+    await page.getByLabel('Menu lainnya', { exact: true }).click()
+    await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Pembelian', exact: true }).click()
+    await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight))
+    await visibleSearch('.purchase-search-area form', 65)
+    await page.locator('.purchase-products').evaluate(element => { element.scrollTop = 1800 })
+    await visibleSearch('.purchase-search-area form', 65)
+    await page.getByLabel('Cari atau scan produk pembelian', { exact: true }).fill('Beras')
+    await expect(page.locator('.purchase-products').getByRole('button', { name: /Beras Ramos/ })).toBeVisible()
+    await page.screenshot({ path: `test-results/sticky-purchase-search-${width}.png` })
+    await page.evaluate(() => scrollTo(0, 0))
+    await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Produk', exact: true }).click()
+    await page.evaluate(() => scrollTo(0, 1800))
+    await visibleSearch('.product-search-bar', 0)
+    expect((await page.locator('.product-search-bar').boundingBox())!.y).toBeLessThanOrEqual(1)
+    await page.screenshot({ path: `test-results/sticky-product-search-${width}.png` })
+    await page.getByLabel('Cari daftar produk', { exact: true }).fill('Beras')
+    await expect(page.locator('.product-list-row')).toHaveCount(1)
+    await expect(page.locator('.product-list-row')).toContainText('Beras Ramos')
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  })
+}
+
+for (const width of [390, 1440]) {
+  test(`loading daftar produk dan favorit terlihat ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 })
+    const initialResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/master-data')
+    await mockAPI(page)
+    const initial = await (await initialResponse).json()
+    await expect(page.getByRole('button', { name: 'Urutan produk penjualan', exact: true })).toBeHidden()
+    await expect(page.getByLabel('Utamakan favorit', { exact: true })).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Perbarui terlaris', exact: true })).toBeHidden()
+    await expect(page.locator('.sale-result-count')).toBeHidden()
+    const options = page.locator('.sale-product-options')
+    await options.locator('summary').click()
+    const sort = page.getByRole('button', { name: 'Urutan produk penjualan', exact: true })
+    await expect(sort).toBeVisible()
+    await sort.click()
+    await page.getByRole('option', { name: 'Nama A–Z', exact: true }).click()
+    await expect(sort).toContainText('Nama A–Z')
+    await page.getByLabel('Utamakan favorit', { exact: true }).check()
+    await expect(page.getByRole('button', { name: 'Perbarui terlaris', exact: true })).toBeVisible()
+    await expect(options.locator('.sale-result-count')).toContainText('1 produk')
+    await options.locator('summary').click()
+    await expect(sort).toBeHidden()
+    await options.locator('summary').click()
+    await expect(sort).toContainText('Nama A–Z')
+    await expect(page.getByLabel('Utamakan favorit', { exact: true })).toBeChecked()
+    await options.locator('summary').click()
+    const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET,PUT,OPTIONS' }
+    let releaseMaster!: () => void
+    const masterGate = new Promise<void>(resolve => { releaseMaster = resolve })
+    await page.route(/\/api\/v1\/master-data(?:\?refresh=true)?$/, async route => {
+      if (route.request().method() === 'OPTIONS') { await route.fulfill({ status: 204, headers: cors }); return }
+      await masterGate
+      await route.fulfill({ json: initial, headers: cors })
+    })
+    await page.getByLabel('Menu lainnya', { exact: true }).click()
+    await page.getByRole('button', { name: 'Muat ulang data', exact: true }).click()
+    await expect(page.locator('.sale-catalog').getByRole('status', { name: 'Memuat daftar produk' })).toBeVisible()
+    await expect(page.locator('.sale-no-products')).toHaveCount(0)
+    await page.screenshot({ path: `test-results/product-loading-${width}.png` })
+    const nav = page.getByRole('navigation', { name: 'Menu utama' })
+    await nav.getByRole('button', { name: 'Produk', exact: true }).click()
+    await expect(page.locator('.product-list').getByRole('status', { name: 'Memuat daftar produk' })).toBeVisible()
+    await expect(page.locator('.product-list-row')).toHaveCount(0)
+    await page.getByLabel('Menu lainnya', { exact: true }).click()
+    await nav.getByRole('button', { name: 'Pembelian', exact: true }).click()
+    await expect(page.locator('.purchase-products').getByRole('status', { name: 'Memuat daftar produk' })).toBeVisible()
+    releaseMaster()
+    await expect(page.locator('.purchase-products .product-loading')).toHaveCount(0)
+    await nav.getByRole('button', { name: 'Penjualan', exact: true }).click()
+    let releaseFavorite!: () => void
+    let favoriteGate = new Promise<void>(resolve => { releaseFavorite = resolve })
+    let fail = false
+    await page.route('http://api.test/api/v1/produk/1/favorit', async route => {
+      if (route.request().method() === 'OPTIONS') { await route.fulfill({ status: 204, headers: cors }); return }
+      await favoriteGate
+      if (!fail) initial.data.products[0].is_favorit = true
+      await route.fulfill({ status: fail ? 500 : 200, json: fail ? { error: { message: 'Favorit belum tersimpan' } } : { data: { ...initial.data.products[0], is_favorit: true } }, headers: cors })
+    })
+    await page.getByRole('button', { name: 'Tandai favorit Beras Ramos', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Menyimpan favorit Beras Ramos', exact: true })).toHaveAttribute('aria-busy', 'true')
+    await expect(page.locator('.product-favorite-progress')).toBeVisible()
+    expect(await page.locator('.product-favorite-progress svg').evaluate(element => getComputedStyle(element).animationName)).toBe('product-loading-spin')
+    await page.screenshot({ path: `test-results/favorite-loading-${width}.png` })
+    releaseFavorite()
+    const favorite = page.getByRole('button', { name: 'Hapus favorit Beras Ramos', exact: true })
+    await expect(favorite).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.locator('.product-favorite-progress')).toHaveCount(0)
+    fail = true
+    favoriteGate = new Promise<void>(resolve => { releaseFavorite = resolve })
+    await favorite.click()
+    await expect(page.locator('.product-favorite-progress')).toBeVisible()
+    releaseFavorite()
+    await expect(page.locator('.sale-page').getByRole('alert')).toContainText('Favorit belum tersimpan')
+    await expect(favorite).toHaveAttribute('aria-pressed', 'true')
+    await expect(favorite).toBeEnabled()
+    await expect(page.locator('.product-favorite-progress')).toHaveCount(0)
+  })
+}
+
+for (const width of [390, 1440]) {
+  test(`daftar produk bertambah per 50 dan pencarian tetap lengkap ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 })
+    await mockAPI(page, 'PEMILIK', false, '10', 125)
+    const saleSpace = page.locator('.sale-virtual-space')
+    const saleScroller = page.locator('.sale-virtual-catalog')
+    await expect(saleSpace).toHaveAttribute('data-loaded-count', '50')
+    expect(await page.locator('.sale-product').count()).toBeLessThanOrEqual(50)
+    await saleScroller.evaluate(element => { element.scrollTop = element.scrollHeight })
+    await expect(saleSpace).toHaveAttribute('data-loaded-count', '100')
+    expect(await saleScroller.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
+    await saleScroller.evaluate(element => { element.scrollTop = element.scrollHeight })
+    await expect(saleSpace).toHaveAttribute('data-loaded-count', '125')
+    await saleScroller.evaluate(element => { element.scrollTop = element.scrollHeight })
+    await expect(page.getByRole('button', { name: 'Tambah Produk Uji 125 ke keranjang', exact: true })).toBeVisible()
+    const saleSearch = page.getByLabel('Cari atau scan produk penjualan', { exact: true })
+    await saleSearch.fill('TEST-120')
+    await expect(page.locator('.sale-product')).toHaveCount(1)
+    await expect(page.getByRole('button', { name: 'Tambah Produk Uji 120 ke keranjang', exact: true })).toBeVisible()
+    await saleSearch.fill('')
+    await expect(saleSpace).toHaveAttribute('data-loaded-count', '50')
+    await saleSearch.focus()
+    for (let index = 0; index < 55; index++) await page.keyboard.press('ArrowDown')
+    await expect(saleSpace).toHaveAttribute('data-loaded-count', '100')
+    await saleSearch.fill('1000000000124')
+    await saleSearch.press('Enter')
+    if (width < 1024) await page.getByRole('tablist', { name: 'Bagian penjualan' }).getByRole('tab', { name: /Keranjang/ }).click()
+    await expect(page.getByLabel('Jumlah Produk Uji 125', { exact: true })).toHaveValue('1')
+    await page.evaluate(() => scrollTo(0, 0))
+    const nav = page.getByRole('navigation', { name: 'Menu utama' })
+    await page.getByLabel('Menu lainnya', { exact: true }).click()
+    await nav.getByRole('button', { name: 'Pembelian', exact: true }).click()
+    const purchaseScroller = page.locator('.purchase-products')
+    await expect(purchaseScroller.locator(':scope > button')).toHaveCount(50)
+    await expect(page.locator('.stock-list-row')).toHaveCount(50)
+    await purchaseScroller.evaluate(element => { element.scrollTop = element.scrollHeight })
+    await expect(purchaseScroller.locator(':scope > button')).toHaveCount(100)
+    expect(await purchaseScroller.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
+    await purchaseScroller.evaluate(element => { element.scrollTop = element.scrollHeight })
+    await expect(purchaseScroller.locator(':scope > button')).toHaveCount(125)
+    await expect(purchaseScroller.locator('.product-page-end')).toHaveCount(0)
+    const purchaseSearch = page.getByLabel('Cari atau scan produk pembelian', { exact: true })
+    await purchaseSearch.fill('TEST-120')
+    await expect(purchaseScroller.locator(':scope > button')).toHaveCount(1)
+    await purchaseSearch.fill('')
+    await expect(purchaseScroller.locator(':scope > button')).toHaveCount(50)
+    await purchaseSearch.fill('1000000000124')
+    await purchaseSearch.press('Enter')
+    if (width < 1024) await page.getByRole('tablist', { name: 'Bagian pembelian' }).getByRole('tab', { name: /Keranjang/ }).click()
+    await expect(page.locator('.purchase-cart').getByLabel('Jumlah Produk Uji 125', { exact: true })).toHaveValue('1')
+    await page.evaluate(() => scrollTo(0, 0))
+    await nav.getByRole('button', { name: 'Produk', exact: true }).click()
+    const rows = page.locator('.product-list-row')
+    await expect(rows).toHaveCount(50)
+    await page.locator('.product-list .product-page-end').scrollIntoViewIfNeeded()
+    await expect(rows).toHaveCount(100)
+    await page.locator('.product-list .product-page-end').scrollIntoViewIfNeeded()
+    await expect(rows).toHaveCount(125)
+    expect(new Set(await rows.allTextContents()).size).toBe(125)
+    const productSearch = page.getByLabel('Cari daftar produk', { exact: true })
+    await productSearch.fill('TEST-120')
+    await expect(rows).toHaveCount(1)
+    await expect(rows).toContainText('Produk Uji 120')
+    await productSearch.fill('')
+    await expect(rows).toHaveCount(50)
+    await page.screenshot({ path: `test-results/infinite-products-${width}.png` })
+  })
+}
+
+for (const viewport of [{ width: 1920, height: 1080 }, { width: 2560, height: 1440 }, { width: 3440, height: 1440 }, { width: 3840, height: 2160 }]) {
+  test(`area kerja memakai lebar layar besar ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    await page.setViewportSize(viewport)
+    await mockAPI(page, 'PEMILIK', false, '10', 125)
+    const fullWidth = async (selector: string) => {
+      await expect.poll(async () => Math.round((await page.locator(selector).boundingBox())!.width) - await page.evaluate(() => document.documentElement.clientWidth)).toBe(0)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    }
+    await fullWidth('.sale-layout')
+    await fullWidth('.pos-topbar-inner')
+    const layout = (await page.locator('.sale-layout').boundingBox())!
+    expect(Math.abs(layout.y + layout.height - viewport.height)).toBeLessThanOrEqual(1)
+    const columns = await page.locator('.sale-product-row').first().evaluate(element => getComputedStyle(element).gridTemplateColumns.split(' ').length)
+    expect(columns).toBeGreaterThanOrEqual(viewport.width >= 2560 ? 5 : 4)
+    if (viewport.height >= 2160) {
+      // More than 50 cards can fit on a tall monitor; paging must not get stuck.
+      await expect.poll(async () => Number(await page.locator('.sale-virtual-space').getAttribute('data-loaded-count'))).toBeGreaterThan(50)
+    }
+    await page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }).click()
+    await expect(page.getByLabel('Jumlah Beras Ramos', { exact: true })).toHaveValue('1')
+    const pay = (await page.locator('.sale-pay').boundingBox())!
+    expect(pay.y + pay.height).toBeLessThanOrEqual(viewport.height)
+    await page.screenshot({ path: `test-results/wide-sales-${viewport.width}.png` })
+    const nav = page.getByRole('navigation', { name: 'Menu utama' })
+    await nav.getByRole('button', { name: 'Produk', exact: true }).click()
+    await fullWidth('.products-page')
+    await nav.getByRole('button', { name: 'Riwayat', exact: true }).click()
+    await fullWidth('.history-page')
+    await page.getByLabel('Menu lainnya', { exact: true }).click()
+    await nav.getByRole('button', { name: 'Pembelian', exact: true }).click()
+    await fullWidth('.purchase-layout')
+    await fullWidth('.purchase-inventory')
+    await page.getByLabel('Menu lainnya', { exact: true }).click()
+    await nav.getByRole('button', { name: 'Data Master', exact: true }).click()
+    await fullWidth('.masters-page')
+    await page.getByLabel('Menu lainnya', { exact: true }).click()
+    await nav.getByRole('button', { name: 'Perangkat', exact: true }).click()
+    await fullWidth('.pos-view-content > .mx-auto')
+    // Workspace width must not stretch focused forms/dialogs to the monitor width.
+    await nav.getByRole('button', { name: 'Penjualan', exact: true }).click()
+    await page.getByRole('button', { name: /^Bayar/ }).click()
+    const dialog = (await page.getByRole('dialog').boundingBox())!
+    expect(dialog.width).toBeLessThanOrEqual(720)
+    expect(dialog.y + dialog.height).toBeLessThanOrEqual(viewport.height)
+  })
+}
+
+test('resize layar mempertahankan rasio panel dan keranjang serta akses produk terakhir', async ({ page }) => {
+  await page.setViewportSize({ width: 2560, height: 1440 })
+  await mockAPI(page, 'PEMILIK', false, '10', 500)
+  await page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }).click()
+  const divider = page.getByRole('separator', { name: 'Atur lebar daftar belanja' })
+  await divider.focus()
+  await page.keyboard.press('Home')
+  await expect(divider).toHaveAttribute('aria-valuenow', '20')
+  await page.setViewportSize({ width: 1024, height: 768 })
+  await expect.poll(async () => Number(await divider.getAttribute('aria-valuenow'))).toBeGreaterThan(20)
+  await page.setViewportSize({ width: 3840, height: 2160 })
+  await expect(divider).toHaveAttribute('aria-valuenow', '20')
+  await expect(page.getByLabel('Jumlah Beras Ramos', { exact: true })).toHaveValue('1')
+  const space = page.locator('.sale-virtual-space')
+  for (let attempt = 0; attempt < 12 && Number(await space.getAttribute('data-loaded-count')) < 500; attempt++) {
+    const previous = Number(await space.getAttribute('data-loaded-count'))
+    await page.locator('.sale-virtual-catalog').evaluate(element => { element.scrollTop = element.scrollHeight })
+    await expect.poll(async () => Number(await space.getAttribute('data-loaded-count'))).toBeGreaterThan(previous)
+  }
+  await page.locator('.sale-virtual-catalog').evaluate(element => { element.scrollTop = element.scrollHeight })
+  await expect(page.getByRole('button', { name: 'Tambah Produk Uji 500 ke keranjang', exact: true })).toBeVisible()
+  expect(await page.locator('.sale-product').count()).toBeLessThan(500)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.screenshot({ path: 'test-results/wide-sales-resized.png' })
+})
+
+test('4275 produk tetap membuka daftar dengan maksimal 50 baris', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockAPI(page, 'PEMILIK', false, '10', 4275)
+  await expect(page.locator('.sale-virtual-space')).toHaveAttribute('data-loaded-count', '50')
+  await expect.poll(() => page.locator('.sale-product').count()).toBeLessThan(50)
+  const nav = page.getByRole('navigation', { name: 'Menu utama' })
+  await nav.getByRole('button', { name: 'Produk', exact: true }).click()
+  await expect(page.locator('.product-list-row')).toHaveCount(50)
+  await expect(page.getByText('50 dari 4275 produk ditampilkan', { exact: true })).toBeVisible()
+  await page.getByLabel('Cari daftar produk', { exact: true }).fill('TEST-4275')
+  await expect(page.locator('.product-list-row')).toHaveCount(1)
+  await expect(page.locator('.product-list-row')).toContainText('Produk Uji 4275')
+  await page.evaluate(() => scrollTo(0, 0))
+  await page.getByLabel('Menu lainnya', { exact: true }).click()
+  await nav.getByRole('button', { name: 'Pembelian', exact: true }).click()
+  await expect(page.locator('.purchase-products > button')).toHaveCount(50)
+  await expect(page.locator('.stock-list-row')).toHaveCount(50)
+  await page.getByLabel('Cari atau scan produk pembelian', { exact: true }).fill('TEST-4275')
+  await expect(page.locator('.purchase-products > button')).toHaveCount(1)
+  await expect(page.locator('.purchase-products > button')).toContainText('Produk Uji 4275')
+})
+
+test.describe('mobile sales workspace scroll', () => {
+  test.use({ hasTouch: true })
+
+  for (const width of [320, 390, 768]) {
+    test(`scroll produk dan keranjang menyisakan tab di atas ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 720 })
+      await mockAPI(page, 'PEMILIK', false, '10', 125)
+      const tabs = page.getByRole('tablist', { name: 'Bagian penjualan' })
+      const catalog = page.locator('.sale-virtual-catalog')
+      const wheelInside = async (selector: string, delta: number) => {
+        const bounds = (await page.locator(selector).boundingBox())!
+        const y = Math.min(690, bounds.y + Math.min(55, bounds.height / 2))
+        await page.mouse.move(bounds.x + bounds.width / 2, y)
+        await page.mouse.wheel(0, delta)
+      }
+      await page.evaluate(() => scrollTo(0, 0))
+      await catalog.evaluate(node => { node.scrollTop = 0 })
+      expect((await tabs.boundingBox())!.y).toBeGreaterThan(100)
+      await wheelInside('.sale-virtual-catalog', 1000)
+      await expect.poll(async () => Math.round((await tabs.boundingBox())!.y)).toBe(0)
+      expect(await page.locator('.pos-topbar').evaluate(node => node.getBoundingClientRect().bottom)).toBeLessThanOrEqual(1)
+      await expect.poll(() => catalog.evaluate(node => node.scrollTop)).toBeGreaterThan(0)
+      const stickySearch = (await page.locator('.sale-search-area').boundingBox())!
+      const panelInset = await page.locator('.sale-layout').evaluate(node => parseFloat(getComputedStyle(node).paddingTop) + 1)
+      expect(Math.abs(stickySearch.y - (await tabs.boundingBox())!.height)).toBeLessThanOrEqual(panelInset)
+      await wheelInside('.sale-virtual-catalog', 600)
+      await expect.poll(async () => Math.round((await tabs.boundingBox())!.y)).toBe(0)
+
+      const search = page.getByLabel('Cari atau scan produk penjualan', { exact: true })
+      for (let id = 2; id <= 15; id++) { await search.fill(`TEST-${id}`); await search.press('Enter') }
+      await tabs.getByRole('tab', { name: /Keranjang/ }).click()
+      await page.locator('.sale-cart-body').evaluate(node => { node.scrollTop = 0 })
+      await page.evaluate(() => scrollTo(0, 0))
+      expect((await tabs.boundingBox())!.y).toBeGreaterThan(100)
+      await wheelInside('.sale-cart-body', 1000)
+      await expect.poll(async () => Math.round((await tabs.boundingBox())!.y)).toBe(0)
+      await expect.poll(() => page.locator('.sale-cart-body').evaluate(node => node.scrollTop)).toBeGreaterThan(0)
+      await expect(page.getByRole('button', { name: /Bayar/ })).toBeInViewport()
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      await page.screenshot({ path: `test-results/mobile-sales-cart-pinned-${width}.png` })
+      await tabs.getByRole('tab', { name: 'Produk', exact: true }).click()
+      await expect.poll(async () => Math.round((await tabs.boundingBox())!.y)).toBe(0)
+      await expect(search).toBeInViewport()
+      await page.screenshot({ path: `test-results/mobile-sales-products-pinned-${width}.png` })
+    })
+  }
+
+  test('satu swipe sentuh menaikkan header lalu melanjutkan scroll produk', async ({ page, context }) => {
+    await page.setViewportSize({ width: 390, height: 720 })
+    await mockAPI(page, 'PEMILIK', false, '10', 125)
+    await page.evaluate(() => scrollTo(0, 0))
+    const bounds = (await page.locator('.sale-virtual-catalog').boundingBox())!
+    const session = await context.newCDPSession(page)
+    const x = Math.round(bounds.x + bounds.width / 2), y = Math.min(685, Math.round(bounds.y + 70))
+    await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+    for (let distance = 30; distance <= 390; distance += 30) {
+      await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y - distance }] })
+    }
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+    await expect.poll(async () => Math.round((await page.getByRole('tablist', { name: 'Bagian penjualan' }).boundingBox())!.y)).toBe(0)
+    await expect.poll(() => page.locator('.sale-virtual-catalog').evaluate(node => node.scrollTop)).toBeGreaterThan(0)
+    await session.detach()
+  })
+})
 
 test.describe('pilihan produk mobile', () => {
   test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })

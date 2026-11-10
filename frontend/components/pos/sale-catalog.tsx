@@ -1,12 +1,15 @@
 'use client'
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { LoaderCircle, Plus, Search, Star } from 'lucide-react'
+import { LoaderCircle, Search, Star } from 'lucide-react'
 import type { Product } from '@/lib/types'
+import { ProductLoading } from './product-loading'
 import { money } from '@/lib/pos'
 import { catalogOffsets, catalogWindow } from '@/lib/catalog-window'
+import { catalogColumns } from '@/lib/catalog-layout'
+import { productPageSize } from '@/lib/use-product-pages'
 
-type Props = { products: Product[]; categories: Map<number, string>; highlight: number; locked: boolean; active: boolean; onHighlight: (index: number) => void; onAdd: (product: Product) => void; favorites: ReadonlySet<number>; onToggleFavorite: (id: number) => void; favoriteEditable: boolean; favoriteBusyID: number | null }
+type Props = { loading?: boolean; products: Product[]; categories: Map<number, string>; highlight: number; locked: boolean; active: boolean; onHighlight: (index: number) => void; onAdd: (product: Product) => void; favorites: ReadonlySet<number>; onToggleFavorite: (id: number) => void; favoriteEditable: boolean; favoriteBusyID: number | null }
 
 export function SaleCatalog(props: Props) {
   const scroller = useRef<HTMLDivElement>(null)
@@ -23,22 +26,27 @@ export function SaleCatalog(props: Props) {
     return () => observer.disconnect()
   }, [])
   // Reset row measurements when names, filter results, or card widths change.
-  return <div ref={scroller} id="sale-products" className="sale-products-grid sale-virtual-catalog">
-    <CatalogRows key={viewport.width} {...props} viewport={viewport} scroller={scroller} />
+  return <div ref={scroller} id="sale-products" className="sale-products-grid sale-virtual-catalog" aria-busy={Boolean(props.loading)}>
+    {props.loading ? <ProductLoading /> : <CatalogRows key={viewport.width} {...props} viewport={viewport} scroller={scroller} />}
   </div>
 }
 
 function CatalogRows({ products, categories, highlight, locked, active, onHighlight, onAdd, favorites, onToggleFavorite, favoriteEditable, favoriteBusyID, viewport, scroller }: Props & { viewport: { width: number; height: number }; scroller: React.RefObject<HTMLDivElement | null> }) {
-  const columns = viewport.width >= 700 ? 3 : 2
+  const columns = catalogColumns(viewport.width)
   const resultKey = useMemo(() => products.map(product => product.id).join(','), [products])
   // A separate keyed component discards old measurements when the search changes.
   return <MeasuredRows key={resultKey} {...{ products, categories, highlight, locked, active, onHighlight, onAdd, favorites, onToggleFavorite, favoriteEditable, favoriteBusyID, viewport, scroller, columns }} />
 }
 
 function MeasuredRows({ products, categories, highlight, locked, active, onHighlight, onAdd, favorites, onToggleFavorite, favoriteEditable, favoriteBusyID, viewport, scroller, columns }: Props & { viewport: { width: number; height: number }; scroller: React.RefObject<HTMLDivElement | null>; columns: number }) {
+  const [limit, setLimit] = useState(productPageSize)
+  const visibleCount = Math.min(products.length, Math.max(limit, Math.ceil((highlight + 1) / productPageSize) * productPageSize))
+  useLayoutEffect(() => {
+    if (highlight >= limit) setLimit(Math.ceil((highlight + 1) / productPageSize) * productPageSize)
+  }, [highlight, limit])
   const [heights, setHeights] = useState<Map<number, number>>(() => new Map())
   const [top, setTop] = useState(0)
-  const offsets = useMemo(() => catalogOffsets(Math.ceil(products.length / columns), heights), [products.length, columns, heights])
+  const offsets = useMemo(() => catalogOffsets(Math.ceil(visibleCount / columns), heights), [visibleCount, columns, heights])
   const geometry = useRef(offsets)
   useLayoutEffect(() => { geometry.current = offsets }, [offsets])
   const measureRow = useCallback((row: number, height: number) => {
@@ -54,11 +62,22 @@ function MeasuredRows({ products, categories, highlight, locked, active, onHighl
     node.scrollTop = 0
     let frame = 0
     const onScroll = () => {
-      if (!frame) frame = requestAnimationFrame(() => { frame = 0; setTop(node.scrollTop) })
+      if (!frame) frame = requestAnimationFrame(() => {
+        frame = 0; setTop(node.scrollTop)
+        if (node.scrollHeight - node.scrollTop - node.clientHeight < 250) setLimit(current => Math.min(products.length, current + productPageSize))
+      })
     }
     node.addEventListener('scroll', onScroll, { passive: true })
     return () => { node.removeEventListener('scroll', onScroll); cancelAnimationFrame(frame) }
-  }, [scroller])
+  }, [scroller, products.length])
+  useLayoutEffect(() => {
+    const node = scroller.current
+    // Tall/wide monitors can fit a complete page. Fill the viewport until there
+    // is something to scroll, otherwise the remaining products are unreachable.
+    if (active && node && node.clientHeight > 0 && visibleCount < products.length && node.scrollHeight - node.scrollTop - node.clientHeight < 250) {
+      setLimit(current => Math.min(products.length, current + productPageSize))
+    }
+  }, [active, offsets, viewport.height, visibleCount, products.length, scroller])
   useLayoutEffect(() => {
     const node = scroller.current
     if (!node || !active || !products.length) return
@@ -73,18 +92,20 @@ function MeasuredRows({ products, categories, highlight, locked, active, onHighl
 
   if (!products.length) return <div className="sale-empty sale-no-products"><Search /><strong>Produk tidak ditemukan</strong><p>Periksa nama, SKU, atau barcode produk.</p></div>
   const { start, end } = catalogWindow(offsets, Math.max(0, top - 14), viewport.height)
-  return <div className="sale-virtual-space" style={{ height: offsets.at(-1)! + 17 }}>
+  const hasMore = visibleCount < products.length
+  return <div className="sale-virtual-space" data-loaded-count={visibleCount} style={{ height: offsets.at(-1)! + 17 + (hasMore ? 48 : 0) }}>
     {Array.from({ length: end - start }, (_, offset) => {
       const row = start + offset
       return <MeasuredRow key={row} row={row} top={offsets[row] + 14} columns={columns} onMeasure={measureRow}>
-        {products.slice(row * columns, (row + 1) * columns).map((product, column) => {
+        {products.slice(row * columns, Math.min((row + 1) * columns, visibleCount)).map((product, column) => {
           const index = row * columns + column
-          return <div className="sale-product-tile" key={product.id}><button type="button" disabled={locked} aria-label={`Tambah ${product.nama} ke keranjang`} data-highlighted={index === highlight} aria-current={index === highlight ? 'true' : undefined} onFocus={() => onHighlight(index)} onMouseEnter={() => onHighlight(index)} className="sale-product" onClick={() => onAdd(product)}>
-            <div className="sale-product-top"><span>{categories.get(product.kategori_id) ?? 'Produk'}</span><Plus /></div><h3>{product.nama}</h3><strong>{money(product.harga_jual)}</strong>
-          </button><button type="button" className="sale-product-favorite" disabled={locked || favoriteBusyID !== null || !favoriteEditable} aria-busy={favoriteBusyID === product.id} aria-label={favoriteBusyID === product.id ? `Menyimpan favorit ${product.nama}` : `${favorites.has(product.id) ? 'Hapus' : 'Tandai'} favorit ${product.nama}`} aria-pressed={favorites.has(product.id)} title={!favoriteEditable ? 'Favorit toko diatur oleh pemilik' : favorites.has(product.id) ? 'Hapus favorit untuk semua pengguna' : 'Jadikan favorit untuk semua pengguna'} onClick={() => onToggleFavorite(product.id)}>{favoriteBusyID === product.id ? <LoaderCircle className="animate-spin" /> : <Star fill={favorites.has(product.id) ? 'currentColor' : 'none'} />}</button></div>
+          return <div className="sale-product-tile" data-favorite-busy={favoriteBusyID === product.id} key={product.id}><button type="button" disabled={locked || favoriteBusyID === product.id} aria-label={`Tambah ${product.nama} ke keranjang`} data-highlighted={index === highlight} aria-current={index === highlight ? 'true' : undefined} onFocus={() => onHighlight(index)} onMouseEnter={() => onHighlight(index)} className="sale-product" onClick={() => onAdd(product)}>
+            <div className="sale-product-top"><span>{categories.get(product.kategori_id) ?? 'Produk'}</span></div><h3>{product.nama}</h3><strong>{money(product.harga_jual)}</strong>
+          </button><button type="button" className="sale-product-favorite" disabled={locked || favoriteBusyID !== null || !favoriteEditable} aria-busy={favoriteBusyID === product.id} aria-label={favoriteBusyID === product.id ? `Menyimpan favorit ${product.nama}` : `${favorites.has(product.id) ? 'Hapus' : 'Tandai'} favorit ${product.nama}`} aria-pressed={favorites.has(product.id)} title={!favoriteEditable ? 'Favorit toko diatur oleh pemilik' : favorites.has(product.id) ? 'Hapus favorit untuk semua pengguna' : 'Jadikan favorit untuk semua pengguna'} onClick={() => onToggleFavorite(product.id)}>{favoriteBusyID === product.id ? <LoaderCircle className="animate-spin" /> : <Star fill={favorites.has(product.id) ? 'currentColor' : 'none'} />}</button>{favoriteBusyID === product.id && <div className="product-favorite-progress" aria-hidden="true"><LoaderCircle /><span>Menyimpan favorit…</span></div>}</div>
         })}
       </MeasuredRow>
     })}
+    {hasMore && <div className="product-page-end sale-page-end" style={{ top: offsets.at(-1)! + 14 }}>Gulir untuk memuat 50 produk berikutnya</div>}
   </div>
 }
 

@@ -15,6 +15,8 @@ export function RupiahField({ label, value, onChange, required = false, disabled
     onChange(next)
     requestAnimationFrame(() => {
       if (document.activeElement !== input) return
+      // Do not overwrite a newer edit or a selection made for replacing the amount.
+      if (input.value !== formatRupiahInput(next) || input.selectionStart !== input.selectionEnd) return
       let position = 0, remaining = count
       while (position < input.value.length && remaining > 0) {
         if (/[\d,]/.test(input.value[position])) remaining--

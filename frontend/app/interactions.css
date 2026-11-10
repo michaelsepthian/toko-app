@@ -1,0 +1,64 @@
+/* Shared motion: small distances and opacity only, for inexpensive WebView rendering. */
+@keyframes ui-content-in { from { opacity: .45; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes ui-fade-in { from { opacity: .45; } to { opacity: 1; } }
+@keyframes ui-modal-in { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes ui-modal-out { to { opacity: 0; transform: translateY(8px) scale(.98); } }
+@keyframes ui-sheet-in { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes ui-sheet-out { to { transform: translateY(100%); } }
+@keyframes ui-backdrop-in { from { background-color: transparent; } }
+@keyframes ui-backdrop-out { to { background-color: transparent; } }
+@keyframes ui-spin { to { transform: rotate(360deg); } }
+.ui-spinner { animation: ui-spin .8s linear infinite; }
+.ui-tab-content { animation: ui-content-in .2s ease-out; }
+.pos-app button, .pos-app summary { touch-action: manipulation; }
+.pos-app button:not(:disabled), .pos-app summary { transition: background-color .15s, border-color .15s, color .15s, box-shadow .15s; }
+.pos-app button:focus:not(:focus-visible), .pos-app summary:focus:not(:focus-visible) { outline: none; }
+.pos-toast, .shopping-notice, .search-select-popup, .shopping-item-menu[open] > div, .pos-more[open] > .pos-more-menu { animation: ui-content-in .16s ease-out; }
+.responsive-panel { position: fixed; inset: 0; margin: auto; padding: 0; width: min(640px, calc(100vw - 40px)); max-width: none; max-height: calc(var(--panel-viewport, 100dvh) - 40px); border: 0; border-radius: 24px; background: var(--card); color: var(--foreground); overflow: hidden; box-shadow: 0 24px 80px #0005; animation: ui-modal-in .2s ease-out both; }
+.responsive-panel::backdrop { background: var(--overlay, #0008); animation: ui-backdrop-in .2s ease-out both; }
+.responsive-panel[data-state="closing"] { animation: ui-modal-out .2s ease-in both; pointer-events: none; }
+.responsive-panel[data-state="closing"]::backdrop { animation: ui-backdrop-out .2s ease-in both; }
+.responsive-panel-surface { display: flex; flex-direction: column; max-height: calc(var(--panel-viewport, 100dvh) - 40px); min-width: 0; }
+.responsive-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 24px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.responsive-panel-title { font-size: 21px; font-weight: 750; outline: none; }
+.responsive-panel-heading button { min-width: 44px; min-height: 44px; }
+.responsive-panel-body { overflow-y: auto; overscroll-behavior: contain; padding: 24px; min-height: 0; }
+.responsive-panel-body fieldset { min-width: 0; }
+.responsive-panel-body .shopping-form-footer, .responsive-panel-body .shopping-dialog-footer, .responsive-panel-body .ui-form-actions { position: sticky; bottom: -24px; background: var(--card); padding-block: 12px; z-index: 2; }
+.responsive-panel-body form > fieldset > button[type="submit"], .responsive-panel-body form > button[type="submit"] { min-height: 48px; }
+.responsive-panel-handle { display: none; }
+.responsive-panel-wide { width: min(1000px, calc(100vw - 40px)); }
+.master-row-button { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; text-align: left; padding: 16px 4px; cursor: pointer; border-radius: 8px; }
+.master-row-button:hover { background: var(--muted); }
+.pos-app .master-list-toolbar { display: flex; justify-content: flex-end; margin-bottom: 16px; }
+.master-row-button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.shopping-item-body-button { text-align: left; cursor: pointer; border-radius: 8px; }
+.shopping-item-body-button:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; }
+.shopping-item[data-selected="true"] { background: color-mix(in srgb, var(--primary) 8%, transparent); }
+.shopping-check-control { display: inline-grid; place-items: center; position: relative; width: 24px; height: 24px; flex-shrink: 0; }
+.shopping-check-control[data-pending="true"] > input { opacity: 0; }
+.shopping-check-progress { position: absolute; inset: 0; display: grid; place-items: center; color: var(--primary); pointer-events: none; }
+.shopping-toast { pointer-events: none; }
+.shopping-toast button { pointer-events: auto; }
+.history-detail-dialog[open], .sale-payment-dialog, .purchase-dialog { animation: ui-modal-in .2s ease-out; }
+.sale-modal-backdrop { animation: ui-backdrop-in .2s ease-out; }
+@media (max-width: 767px) {
+  .responsive-panel { inset: auto 0 var(--panel-keyboard, 0px); margin: 0; width: 100%; max-height: calc(var(--panel-viewport, 100dvh) - 12px); border-radius: 24px 24px 0 0; animation-name: ui-sheet-in; }
+  .responsive-panel[data-state="closing"] { animation-name: ui-sheet-out; }
+  .responsive-panel-surface { max-height: calc(var(--panel-viewport, 100dvh) - 12px); }
+  .responsive-panel-handle { display: block; width: 40px; height: 4px; margin: 10px auto 0; border-radius: 9px; background: var(--muted-foreground); opacity: .4; flex-shrink: 0; }
+  .responsive-panel-heading { padding: 10px 16px; }
+  .responsive-panel-title { font-size: 19px; }
+  .responsive-panel-body { padding: 16px 16px max(20px, env(safe-area-inset-bottom)); }
+  .responsive-panel-body .shopping-form-footer, .responsive-panel-body .shopping-dialog-footer, .responsive-panel-body .ui-form-actions { bottom: -16px; }
+  .responsive-panel-body .shopping-form-footer { flex-wrap: wrap; }
+  .responsive-panel-body .shopping-form-footer button[type="submit"] { width: 100%; }
+}
+@media (max-width: 1023px) {
+  .sale-page[data-mobile-panel="products"] .sale-catalog, .sale-page[data-mobile-panel="cart"] .sale-cart, .purchase-page[data-mobile-panel="products"] .purchase-catalog, .purchase-page[data-mobile-panel="cart"] .purchase-cart { animation: ui-fade-in .2s ease-out; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .responsive-panel, .responsive-panel::backdrop, .ui-tab-content, .pos-toast, .shopping-notice, .search-select-popup, .shopping-item-menu[open] > div, .pos-more[open] > .pos-more-menu, .history-detail-dialog[open], .sale-payment-dialog, .purchase-dialog, .sale-modal-backdrop, .ui-spinner { animation: none !important; }
+  .pos-app button, .pos-app summary { transition: none !important; }
+  .sale-page .sale-catalog, .sale-page .sale-cart, .purchase-page .purchase-catalog, .purchase-page .purchase-cart { animation: none !important; }
+}
