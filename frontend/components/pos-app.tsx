@@ -14,6 +14,8 @@ import { History } from './pos/history'
 import { Devices } from './pos/devices'
 import { ErrorBox } from './pos/common'
 import { ShoppingPlan } from './pos/shopping-plan'
+import { clearActionHash, useContentMotion, useDismissInteractions } from '@/lib/ui-interactions'
+import { useNotice } from '@/lib/use-notice'
 
 const initialData: Data = { products: [], categories: [], units: [], payments: [], sources: [], stocks: [] }
 type View = 'cashier' | 'purchases' | 'products' | 'history' | 'masters' | 'devices' | 'shopping'
@@ -22,12 +24,16 @@ export function PosApp() { return <AuthGate>{user => <Workspace key={user.id} us
 function Workspace({ user }: { user: User }) {
   const owner = user.peran === 'PEMILIK'
   const [view, setView] = useState<View>('cashier'); const [data, setData] = useState<Data>(initialData)
-  const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [notice, setNotice] = useState('')
+  const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [notice, setNotice] = useNotice()
   const [dark, setDark] = useState(false); const [devices, setDevices] = useState<DeviceSettings>(defaultDevices)
   const [lastSale, setLastSale] = useState<Transaction | null>(null)
   const headerRef = useRef<HTMLDivElement>(null)
   const drawerBusy = useRef(false)
   const moreRef = useRef<HTMLDetailsElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  useContentMotion(contentRef, view)
+  useDismissInteractions()
+  useEffect(() => { clearActionHash() }, [])
   const [operationalDateHost, setOperationalDateHost] = useState<HTMLDivElement | null>(null)
   useEffect(() => {
     setDevices(readDevices())
@@ -57,8 +63,11 @@ function Workspace({ user }: { user: User }) {
     document.addEventListener('keydown', escape, true)
     return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape, true) }
   }, [])
-  useEffect(() => { if (!notice) return; const timer = window.setTimeout(() => setNotice(''),7000); return () => window.clearTimeout(timer) },[notice])
-  function navigate(next: View) { setView(next); if (moreRef.current) moreRef.current.open = false }
+  function navigate(next: View) {
+    document.querySelectorAll<HTMLDetailsElement>('.pos-more[open], .shopping-item-menu[open], .sale-shortcuts[open], .sale-product-options[open]').forEach(menu => { menu.open = false })
+    window.dispatchEvent(new Event('toko-close-popovers'))
+    clearActionHash(); setView(next)
+  }
   function toggleTheme() { const next = !dark; setDark(next); document.documentElement.classList.toggle('dark',next); localStorage.setItem('toko:theme',next ? 'dark' : 'light') }
 
   const refresh = useCallback(async (checkVersion = false, force = false) => {
@@ -89,7 +98,7 @@ function Workspace({ user }: { user: User }) {
   async function drawer() {
     if (drawerBusy.current) return
     drawerBusy.current = true; setError('')
-    try { setNotice(await openDrawer(devices)) } catch (err) { setError(message(err)) }
+    try { setNotice(await openDrawer(devices)) } catch (err) { setNotice(`Buka laci belum berhasil: ${message(err)}`) }
     finally { drawerBusy.current = false }
   }
   useEffect(() => {
@@ -142,6 +151,7 @@ function Workspace({ user }: { user: User }) {
       {error && <div className="pos-error-banner flex items-center gap-2"><div className="flex-1"><ErrorBox>{error}</ErrorBox></div><Button variant="ghost" aria-label="Tutup pesan kesalahan" onClick={() => setError('')}><X /></Button></div>}
     </div>
     {notice && <div role="status" className="pos-toast"><span>{notice}</span><button aria-label="Tutup pemberitahuan" onClick={() => setNotice('')}><X className="size-4" /></button></div>}
+    <div ref={contentRef} className="pos-view-content">
     <SaleCheckout loading={loading} user={user} data={data} active={view === 'cashier'} operationalDateHost={operationalDateHost} onSaved={saved} onReprint={print} onProductUpdated={product => setData(previous => ({ ...previous, products: previous.products.map(row => row.id === product.id ? product : row) }))} />
     {owner && <Checkout loading={loading} user={user} data={data} purchase active={view === 'purchases'} onSaved={saved} />}
     {view === 'purchases' && owner && <Inventory data={data} refresh={refreshStocks} />}
@@ -150,6 +160,7 @@ function Workspace({ user }: { user: User }) {
     {view === 'history' && <History data={data} owner={owner} refresh={refresh} print={print} storeName={devices.storeName} userID={user.id} />}
     {view === 'masters' && owner && <Masters data={data} refresh={refresh} />}
     {view === 'devices' && owner && <Devices settings={devices} onChange={setDevices} />}
+    </div>
   </main>
 }
 

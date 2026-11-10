@@ -1,9 +1,12 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Plus, RefreshCw, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { BusyButton } from '@/components/ui/busy-button'
+import { ResponsivePanel } from '@/components/ui/responsive-panel'
 import { all, api, message } from '@/lib/api'
+import { useNotice } from '@/lib/use-notice'
 import type { User } from '@/lib/types'
 import { ErrorBox, Field, inputClass, Panel } from './common'
 
@@ -17,9 +20,9 @@ export function UsersMaster() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [listError, setListError] = useState('')
-  const [notice, setNotice] = useState('')
+  const [notice, setNotice] = useNotice()
   const [query, setQuery] = useState('')
-  const editorRef = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
   async function load() {
     setLoading(true); setListError('')
     try { setRows(await all<Account>('/pengguna')) }
@@ -28,14 +31,14 @@ export function UsersMaster() {
   }
   useEffect(() => { void load() }, [])
   function focusEditor() {
-    editorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    editorRef.current?.querySelector('input')?.focus({ preventScroll: true })
+    setForm(empty); setError(''); setOpen(true)
   }
   const filtered = rows.filter(row => `${row.nama} ${row.username} ${row.peran}`.toLowerCase().includes(query.trim().toLowerCase()))
-  return <div className="master-layout users-layout grid gap-5 md:grid-cols-2">
-    <div ref={editorRef} id="user-editor" className="master-editor"><Panel title="Tambah Pengguna" subtitle="Buat akun untuk tim toko dan tentukan hak aksesnya.">
+  return <div className="users-layout">
+    {notice && <p role="status" className="mb-4 rounded-xl border bg-accent p-3 text-sm text-accent-foreground">{notice}</p>}
+    <ResponsivePanel open={open} busy={busy} title="Tambah Pengguna" onClose={() => setOpen(false)}>
+      <p className="mb-3 text-sm text-muted-foreground">Buat akun untuk tim toko dan tentukan hak aksesnya.</p>
       <ErrorBox>{error}</ErrorBox>
-      {notice && <p role="status" className="mb-4 rounded-xl border bg-accent p-3 text-sm text-accent-foreground">{notice}</p>}
       <form onSubmit={async event => {
         event.preventDefault(); if (busy) return
         setError(''); setNotice('')
@@ -47,6 +50,7 @@ export function UsersMaster() {
           const created = await api<Account>('/pengguna', 'POST', { nama: form.nama.trim(), username: form.username.trim(), password: form.password, peran: form.peran })
           setRows(previous => [created, ...previous]); setQuery(''); setForm(empty)
           setNotice(`Pengguna ${created.nama} berhasil ditambahkan. Akun sudah bisa digunakan untuk masuk.`)
+          setOpen(false)
         } catch (err) { setError(message(err)) }
         finally { setBusy(false) }
       }}><fieldset disabled={busy} className="space-y-4">
@@ -56,10 +60,10 @@ export function UsersMaster() {
         <label className="flex flex-col gap-1.5 text-sm font-semibold">Konfirmasi password<input className={inputClass} type="password" value={form.confirmation} onChange={event => setForm({ ...form, confirmation: event.target.value })} required autoComplete="new-password" /></label>
         <label className="flex flex-col gap-1.5 text-sm font-semibold">Role<select aria-label="Role" className={inputClass} value={form.peran} onChange={event => setForm({ ...form, peran: event.target.value as User['peran'] })} aria-describedby="user-role-description"><option value="KASIR">Kasir</option><option value="PEMILIK">Pemilik</option></select></label>
         <p id="user-role-description" className="rounded-xl bg-muted p-3 text-sm text-muted-foreground">{form.peran === 'PEMILIK' ? 'Pemilik memiliki akses penuh, termasuk mengelola pengguna, data master, dan pembelian.' : 'Kasir dapat melayani penjualan dan melihat riwayat, tanpa mengelola pengguna atau data master.'}</p>
-        <Button type="submit" className="h-12 w-full" disabled={busy}><Plus />{busy ? 'Menyimpan…' : 'Simpan Pengguna'}</Button>
+        <BusyButton type="submit" className="h-12 w-full" busy={busy}><Plus />Simpan Pengguna</BusyButton>
       </fieldset></form>
-    </Panel></div>
-    <div className="master-list"><div className="master-list-toolbar"><a href="#user-editor" className="master-add" onClick={focusEditor}><Plus aria-hidden="true" />Tambah Pengguna</a></div>
+    </ResponsivePanel>
+    <div className="master-list"><div className="master-list-toolbar"><Button onClick={focusEditor}><Plus aria-hidden="true" />Tambah Pengguna</Button></div>
       <Panel title="Daftar Pengguna" subtitle="Akun yang terdaftar di toko.">
         <div className="mb-4 flex items-end gap-2"><div className="min-w-0 flex-1"><Field label="Cari pengguna" value={query} onChange={setQuery} /></div><Button type="button" variant="outline" className="h-12" aria-label="Muat ulang pengguna" disabled={loading || busy} onClick={() => void load()}><RefreshCw className={loading ? 'animate-spin' : ''} /></Button></div>
         <ErrorBox>{listError}</ErrorBox>

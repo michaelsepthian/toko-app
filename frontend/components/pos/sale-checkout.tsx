@@ -5,6 +5,8 @@ import { createPortal } from 'react-dom'
 import Decimal from 'decimal.js'
 import { Banknote, Barcode, CalendarDays, Check, CircleAlert, CreditCard, LoaderCircle, Minus, Plus, Printer, QrCode, RotateCcw, Search, ShoppingBasket, Trash2, WalletCards, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ResponsivePanel } from '@/components/ui/responsive-panel'
+import { useContentMotion } from '@/lib/ui-interactions'
 import { api, message } from '@/lib/api'
 import { exactProduct, groupedCash, isBarcodeQuery, isSearchCharacter } from '@/lib/keyboard'
 import { jakartaDay } from '@/lib/history-date'
@@ -89,6 +91,7 @@ export function SaleCheckout({ loading = false, user, data, active, operationalD
   const searchRef = useRef<HTMLInputElement>(null)
   const dialogRef = useRef<HTMLElement>(null)
   const cartBodyRef = useRef<HTMLDivElement>(null)
+  useContentMotion(cartBodyRef, drafts.active)
   const [addition, setAddition] = useState(0)
   const draftTabsRef = useRef<HTMLDivElement>(null)
   const quantityRefs = useRef<Map<number, HTMLInputElement>>(new Map())
@@ -302,11 +305,6 @@ export function SaleCheckout({ loading = false, user, data, active, operationalD
       if (event.key === 'Enter' && paymentStage === 'failed' && (event.target === dialog || (event.target as HTMLElement).closest('[data-payment-retry]')) && !event.repeat && !event.isComposing && !event.ctrlKey && !event.metaKey && !event.altKey) { event.preventDefault(); void save(Boolean(pending)); return }
       if (event.key === 'Enter' && event.repeat) { event.preventDefault(); return }
       if (event.key === 'Escape') { event.preventDefault(); if (!busy) finish(); return }
-      if (event.key !== 'Tab') return
-      const nodes = focusable(); const first = nodes[0]; const last = nodes[nodes.length - 1]
-      if (!nodes.length) { event.preventDefault(); return }
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
     }
     dialog.addEventListener('keydown', keydown)
     return () => dialog.removeEventListener('keydown', keydown)
@@ -375,7 +373,12 @@ export function SaleCheckout({ loading = false, user, data, active, operationalD
         <div className="sale-panel-heading"><div><h1 id="cart-heading">Daftar Belanja</h1><p>{itemCount} barang dipilih</p></div><Button className="sale-clear" variant="ghost" disabled={locked || !cart.length} onClick={clearCart}><Trash2 />Kosongkan <kbd>F9</kbd></Button></div>
         <div className="sale-cart-body" ref={cartBodyRef} id="sale-active-cart" role="tabpanel" aria-labelledby={`sale-draft-tab-${drafts.active}`}>
           {pending && !modal && <div className="sale-pending" role="status"><p>Hasil transaksi sebelumnya belum terkonfirmasi.</p><Button disabled={busy} onClick={() => void save(true)}>Periksa / lanjutkan transaksi</Button></div>}
-          {!cart.length ? <div className="sale-empty"><ShoppingBasket /><strong>Belum ada barang</strong><p>Cari atau scan produk untuk mulai berjualan.</p></div> : cart.map(line => <article className="sale-cart-line" key={line.product.id} data-active={selectedCart === line.product.id}>
+          {!cart.length ? <div className="sale-empty"><ShoppingBasket /><strong>Belum ada barang</strong><p>Cari atau scan produk untuk mulai berjualan.</p></div> : cart.map(line => <article className="sale-cart-line" key={line.product.id} data-active={selectedCart === line.product.id} onClick={event => {
+            if (locked || (event.target as Element).closest('button,input')) return
+            setSelectedCart(line.product.id)
+            const input = quantityRefs.current.get(line.product.id)
+            input?.focus({ preventScroll: true }); input?.select()
+          }}>
             <div className="sale-line-name"><h2 title={line.product.nama}>{line.product.nama}</h2><p>{money(line.price)}</p></div>
             <div className="sale-quantity"><Button variant="outline" className="quantity-minus" disabled={locked} aria-label={`Kurangi ${line.product.nama}`} onClick={() => changeQuantity(line.product.id, -1)}><Minus /></Button>
               <input ref={node => { if (node) quantityRefs.current.set(line.product.id, node); else quantityRefs.current.delete(line.product.id) }} aria-label={`Jumlah ${line.product.nama}`} inputMode="decimal" disabled={locked} value={line.quantity} onFocus={event => { setSelectedCart(line.product.id); event.target.select() }} onChange={event => { if (/^(\d+(?:\.\d*)?)?$/.test(event.target.value)) update(line.product.id, { quantity: event.target.value }) }} onKeyDown={event => { if (event.key === 'Enter' || event.key === 'Escape') { event.preventDefault(); focusSearch() } if (event.key === 'ArrowUp' || event.key === 'ArrowDown') { event.preventDefault(); changeQuantity(line.product.id, event.key === 'ArrowUp' ? 1 : -1) } }} />
@@ -415,7 +418,7 @@ export function SaleCheckout({ loading = false, user, data, active, operationalD
       </div><SaleCatalog loading={loading} products={filtered} categories={categories} highlight={highlight} locked={locked} active={active} onHighlight={setHighlight} onAdd={add} favorites={favorites} onToggleFavorite={toggleFavorite} favoriteEditable={user.peran === 'PEMILIK'} favoriteBusyID={favoriteBusyID} /></section>
     </SaleLayout>
 
-    {modal && active && <div className="sale-modal-backdrop"><section ref={dialogRef} className="sale-payment-dialog" tabIndex={-1} role="dialog" aria-modal="true" aria-busy={paymentStage === 'saving'} aria-labelledby="sale-payment-title">
+    <ResponsivePanel open={modal && active} title="Pembayaran" dirty={false} busy={busy || paymentStage === 'saving' || Boolean(pending && !completed)} onClose={finish}><section ref={dialogRef} className="sale-payment-content" tabIndex={-1} aria-busy={paymentStage === 'saving'}>
       {completed || (changePreview && paymentStage !== 'confirm') ? <div className="sale-success">
         <p className="sale-eyebrow">{completed ? `PEMBAYARAN ${completed.status === 'SELESAI' ? 'BERHASIL' : completed.status}` : paymentStage === 'failed' ? 'PEMBAYARAN BELUM TERKONFIRMASI' : 'PEMBAYARAN SEDANG DISIMPAN'}</p>
         <h2 id="sale-payment-title">Kembalian</h2>
@@ -438,6 +441,6 @@ export function SaleCheckout({ loading = false, user, data, active, operationalD
         <Button type="submit" data-autofocus={method?.jenis !== 'CASH' || Boolean(pending) ? true : undefined} className="sale-complete" disabled={busy || (!pending && (!valid || !sufficient))}><WalletCards />{busy ? 'Menyimpan…' : pending ? 'Periksa / lanjutkan transaksi' : 'Selesaikan Pembayaran'}</Button>
         <p className="sale-dialog-hint"><kbd>Enter</kbd> konfirmasi · <kbd>Esc</kbd> kembali</p>
       </form>}
-    </section></div>}
+    </section></ResponsivePanel>
   </div>
 }

@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Decimal from 'decimal.js'
 import { Barcode, Minus, Plus, Search, ShoppingBasket, Trash2, WalletCards } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ResponsivePanel } from '@/components/ui/responsive-panel'
+import { BusyButton } from '@/components/ui/busy-button'
 import { api, message } from '@/lib/api'
 import type { CashPurchaseNote, CartLine, Data, Product, Transaction, TransactionInput, User } from '@/lib/types'
 import { money, totals, validLines, validNumber } from '@/lib/pos'
@@ -98,24 +100,6 @@ export function Checkout({ loading = false, user, data, purchase = false, active
     return () => window.removeEventListener('keydown', keyboard)
   })
 
-  useEffect(() => {
-    if (!modal || !active || !dialogRef.current) return
-    const dialog = dialogRef.current
-    const previous = document.activeElement as HTMLElement | null
-    const focusable = () => Array.from(dialog.querySelectorAll<HTMLElement>('input:not([disabled]),button:not([disabled]),select:not([disabled]),[tabindex="0"]'))
-    ;(focusable()[0] ?? dialog).focus()
-    const keydown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { event.preventDefault(); if (!busy) setModal(false) }
-      if (event.key !== 'Tab') return
-      const nodes = focusable(); const first = nodes[0]; const last = nodes[nodes.length - 1]
-      if (!nodes.length) { event.preventDefault(); return }
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
-    }
-    dialog.addEventListener('keydown', keydown)
-    return () => { dialog.removeEventListener('keydown', keydown); previous?.focus() }
-  }, [modal, active, completed, busy])
-
   async function save(retry = false) {
     setError('')
     if (!retry && (!valid || !selected || (!purchase && !sufficient))) { setError('Periksa jumlah, harga, diskon, metode, dan pembayaran.'); return }
@@ -152,6 +136,6 @@ export function Checkout({ loading = false, user, data, purchase = false, active
       </section>
       <section id="purchase-panel-products" role="tabpanel" aria-labelledby="purchase-tab-products" className="purchase-catalog h-fit rounded-3xl border bg-card shadow-sm"><div className="purchase-search-area border-b p-4"><h2 className="text-xl font-bold">Pilih Produk</h2><form className="mt-3 flex items-center gap-3 rounded-2xl border-2 border-primary/30 px-4" onSubmit={e => { e.preventDefault(); const exact = data.products.find(p => p.aktif && (p.barcode === query || p.sku === query)); if (exact) add(exact); else if (filtered.length === 1 && !/^\d{5,}$/.test(query)) add(filtered[0]); else void scan(query) }}><Search /><input ref={search} aria-label={purchase ? 'Cari atau scan produk pembelian' : 'Cari atau scan produk penjualan'} className="h-14 min-w-0 flex-1 bg-transparent outline-none" value={query} disabled={locked} onChange={e => setQuery(e.target.value)} placeholder="Nama, SKU, atau scan barcode + Enter" /><Barcode /></form><p className="mt-2 text-xs text-muted-foreground">F2 fokus pencarian · Scanner USB mode keyboard + Enter</p></div><div ref={catalogRef} className="purchase-products grid max-h-[70vh] grid-cols-1 gap-3 overflow-y-auto p-4 sm:grid-cols-2" aria-busy={loading}>{loading && <ProductLoading />}{(active && !loading ? visibleProducts : []).map(product => <button key={product.id} disabled={locked} onClick={() => add(product)} className="flex min-h-36 flex-col rounded-2xl border bg-background p-4 text-left transition hover:border-primary hover:bg-primary/5 disabled:opacity-40"><span className="text-xs text-muted-foreground">{data.categories.find(c => c.id === product.kategori_id)?.nama} · {product.sku}</span><span className="mt-2 text-lg font-bold">{product.nama}</span><span className="mt-auto pt-3 text-xl font-bold">{money(product.harga_jual)}</span><span className="text-sm text-muted-foreground">Stok {stock(product.id).toString()}</span></button>)}{active && !loading && hasMore && <ProductPageEnd endRef={endRef} />}{!loading && !filtered.length && <p className="col-span-full py-10 text-center text-muted-foreground">Belum ada produk yang cocok. Pemilik dapat menambahnya dari menu Produk.</p>}</div></section>
     </div>
-    {modal && active && <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4"><section ref={dialogRef} tabIndex={-1} onKeyDown={e => { if (e.key === 'Enter' && e.target instanceof HTMLInputElement && !locked && !completed && (purchase || sufficient)) { e.preventDefault(); void save() } }} role="dialog" aria-modal="true" aria-labelledby={`${purchase ? 'buy' : 'sale'}-title`} className="purchase-dialog w-full max-w-lg space-y-4 rounded-3xl bg-card p-6"><h2 id={`${purchase ? 'buy' : 'sale'}-title`} className="text-2xl font-bold">{completed ? 'Transaksi tersimpan' : purchase ? 'Konfirmasi Pembelian' : 'Konfirmasi Pembayaran'}</h2><ErrorBox>{error}</ErrorBox>{completed ? <><p className="break-all font-mono text-sm">{completed.nomor} · {completed.status}</p><p className="text-3xl font-black">{money(completed.total_tagihan ?? completed.total_pembayaran ?? '0')}</p>{!purchase && <p>Kembalian: <strong>{money(completed.kembalian ?? '0')}</strong></p>}<Button className="w-full" onClick={() => { setModal(false); setCompleted(null); search.current?.focus() }}>Selesai</Button></> : <><p className="text-4xl font-black">{money(preview.total)}</p><p>{selected?.nama}</p>{!purchase && selected?.jenis === 'CASH' && <RupiahField label="Uang diterima" value={paid} onChange={setPaid} disabled={locked} />}{!purchase && selected?.jenis !== 'CASH' && <p className="text-sm text-muted-foreground">Pastikan pembayaran pada terminal/QRIS sudah berhasil. Aplikasi hanya mencatat pembayaran.</p>}<Field label="Referensi pembayaran (opsional)" value={reference} onChange={setReference} disabled={locked} /><div className="flex gap-3"><Button variant="outline" disabled={busy} onClick={() => setModal(false)}>Tutup</Button><Button className="flex-1" disabled={locked || (!purchase && !sufficient)} onClick={() => void save()}>{busy ? 'Menyimpan…' : 'Konfirmasi & Simpan'}</Button></div></>}</section></div>}
+    <ResponsivePanel open={modal && active} title={completed ? 'Transaksi tersimpan' : purchase ? 'Konfirmasi Pembelian' : 'Konfirmasi Pembayaran'} dirty={false} busy={busy} onClose={() => setModal(false)}><section ref={dialogRef} tabIndex={-1} onKeyDown={e => { if (e.key === 'Enter' && e.target instanceof HTMLInputElement && !locked && !completed && (purchase || sufficient)) { e.preventDefault(); void save() } }} className="space-y-4"><ErrorBox>{error}</ErrorBox>{completed ? <><p className="break-all font-mono text-sm">{completed.nomor} · {completed.status}</p><p className="text-3xl font-black">{money(completed.total_tagihan ?? completed.total_pembayaran ?? '0')}</p>{!purchase && <p>Kembalian: <strong>{money(completed.kembalian ?? '0')}</strong></p>}<Button className="w-full" onClick={() => { setModal(false); setCompleted(null) }}>Selesai</Button></> : <><p className="text-4xl font-black">{money(preview.total)}</p><p>{selected?.nama}</p>{!purchase && selected?.jenis === 'CASH' && <RupiahField label="Uang diterima" value={paid} onChange={setPaid} disabled={locked} />}{!purchase && selected?.jenis !== 'CASH' && <p className="text-sm text-muted-foreground">Pastikan pembayaran pada terminal/QRIS sudah berhasil. Aplikasi hanya mencatat pembayaran.</p>}<Field label="Referensi pembayaran (opsional)" value={reference} onChange={setReference} disabled={locked} /><div className="flex gap-3"><Button variant="outline" disabled={busy} onClick={() => setModal(false)}>Tutup</Button><BusyButton className="flex-1" busy={busy} disabled={locked || (!purchase && !sufficient)} onClick={() => void save()}>Konfirmasi & Simpan</BusyButton></div></>}</section></ResponsivePanel>
   </div>
 }

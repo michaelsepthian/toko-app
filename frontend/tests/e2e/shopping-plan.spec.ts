@@ -83,7 +83,7 @@ test('kalender bulanan, bulk produk/lainnya, jumlah opsional dan checklist tanpa
   const save = calls.find(call => call.path === '/rencana-belanja')!
   expect(save.body.sumber_pembelian_id).toBe(1)
   expect(save.body.items).toEqual([{ produk_id: 1, nama_barang: '', jumlah: null, satuan: '', catatan: '' }, { produk_id: null, nama_barang: 'Kantong kemasan', jumlah: '2.5', satuan: 'pak', catatan: '' }])
-  await page.getByRole('checkbox', { name: 'Sudah dibeli: Kantong kemasan' }).check()
+  await page.getByRole('checkbox', { name: 'Sudah dibeli: Kantong kemasan' }).click()
   await expect(page.getByRole('checkbox', { name: 'Sudah dibeli: Kantong kemasan' })).toBeChecked()
   expect(calls.some(call => /pembelian|mutasi/.test(call.path))).toBe(false)
   await page.screenshot({ path: 'test-results/shopping-plan-desktop.png', fullPage: true })
@@ -91,7 +91,7 @@ test('kalender bulanan, bulk produk/lainnya, jumlah opsional dan checklist tanpa
 
 test('pemilik bisa pindah massal, ubah tanggal dan mempertahankan checklist', async ({ page }) => {
   const { calls, date } = await setup(page)
-  await page.getByRole('checkbox', { name: 'Sudah dibeli: Gula Pasir' }).check()
+  await page.getByRole('checkbox', { name: 'Sudah dibeli: Gula Pasir' }).click()
   await expect(page.getByRole('checkbox', { name: 'Sudah dibeli: Gula Pasir' })).toBeChecked()
   await page.getByRole('button', { name: 'Pilih barang', exact: true }).click()
   await page.getByLabel('Pilih Gula Pasir untuk dipindahkan').check()
@@ -118,7 +118,7 @@ test('kasir bisa menambah dan checklist tetapi tidak memiliki aksi pemindahan', 
   await setup(page, 'KASIR')
   await expect(page.getByRole('button', { name: 'Pilih barang', exact: true })).toHaveCount(0)
   await expect(page.locator('.shopping-item-menu')).toHaveCount(0)
-  await page.getByRole('checkbox', { name: 'Sudah dibeli: Minyak goreng' }).check()
+  await page.getByRole('checkbox', { name: 'Sudah dibeli: Minyak goreng' }).click()
   await expect(page.getByRole('checkbox', { name: 'Sudah dibeli: Minyak goreng' })).toBeChecked()
   await page.getByRole('button', { name: 'Tambah belanjaan', exact: true }).click()
   await select(page, 'Tempat beli rencana', 'Toko Makmur')
@@ -128,13 +128,13 @@ test('kasir bisa menambah dan checklist tetapi tidak memiliki aksi pemindahan', 
   await expect(page.getByRole('checkbox', { name: 'Sudah dibeli: Sabun cuci' })).toBeVisible()
 })
 
-test('retry simpan mempertahankan identitas dan isian tidak hilang saat ganti tanggal dibatalkan', async ({ page }) => {
+test('retry simpan mempertahankan identitas dan isian tidak hilang saat tutup panel dibatalkan', async ({ page }) => {
   const { calls } = await setup(page, 'PEMILIK', true)
   await page.getByRole('button', { name: 'Tambah belanjaan', exact: true }).click()
   await select(page, 'Barang baris 1', 'Lainnya — tulis barang baru')
   await page.getByLabel('Nama barang lainnya baris 1').fill('Barang retry')
   page.once('dialog', dialog => dialog.dismiss())
-  await page.getByRole('button', { name: 'Bulan berikutnya' }).click()
+  await page.getByRole('button', { name: 'Tutup Tambah belanjaan', exact: true }).click()
   await expect(page.getByLabel('Nama barang lainnya baris 1')).toHaveValue('Barang retry')
   await page.getByRole('button', { name: 'Simpan 1 barang', exact: true }).click()
   await expect(page.locator('.shopping-plan-page').getByRole('alert')).toBeVisible()
@@ -162,7 +162,7 @@ test('mobile: kalender penuh, form kartu dan panel pemindahan tanpa overflow hor
   await page.getByLabel('Aksi Barang mobile', { exact: true }).click()
   await page.getByRole('button', { name: 'Pindahkan', exact: true }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
-  expect(await page.getByRole('dialog').evaluate(node => Math.round(node.getBoundingClientRect().bottom))).toBe(812)
+  await expect.poll(() => page.getByRole('dialog').evaluate(node => Math.round(node.getBoundingClientRect().bottom))).toBe(812)
   await page.screenshot({ path: 'test-results/shopping-plan-mobile-move.png', fullPage: true })
 })
 
@@ -189,6 +189,9 @@ test('jumlah nol ditolak dan kegagalan checklist mengembalikan status sebelumnya
   await page.getByRole('button', { name: 'Simpan 1 barang', exact: true }).click()
   await expect(page.locator('.shopping-plan-page').getByRole('alert')).toContainText('lebih dari 0')
   expect(calls.filter(call => call.path === '/rencana-belanja')).toHaveLength(0)
+  page.once('dialog', dialog => dialog.accept())
+  await page.getByRole('button', { name: 'Tutup Tambah belanjaan', exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
   await page.route('http://api.test/api/v1/rencana-belanja/1/checklist', async route => {
     if (route.request().method() === 'OPTIONS') { await route.fallback(); return }
     await route.fulfill({ status: 500, headers: { 'access-control-allow-origin': '*' }, json: { error: { message: 'Gagal menyimpan checklist' } } })
@@ -196,4 +199,115 @@ test('jumlah nol ditolak dan kegagalan checklist mengembalikan status sebelumnya
   await page.getByRole('checkbox', { name: 'Sudah dibeli: Gula Pasir' }).click()
   await expect(page.locator('.shopping-plan-page').getByRole('alert')).toContainText('Gagal menyimpan checklist')
   await expect(page.getByRole('checkbox', { name: 'Sudah dibeli: Gula Pasir' })).not.toBeChecked()
+})
+
+test('klik isi baris mengikuti mode checklist atau seleksi tanpa mengeksekusi dua kali', async ({ page }) => {
+  const { calls } = await setup(page)
+  await page.getByRole('button', { name: 'Checklist Gula Pasir', exact: true }).getByText('Gula Pasir', { exact: true }).click()
+  await expect(page.getByRole('checkbox', { name: 'Sudah dibeli: Gula Pasir' })).toBeChecked()
+  await expect.poll(() => calls.filter(call => call.path.endsWith('/checklist')).length).toBe(1)
+  await page.getByRole('button', { name: 'Pilih barang', exact: true }).click()
+  await page.getByRole('button', { name: 'Pilih Minyak goreng', exact: true }).getByText('Minyak goreng', { exact: true }).click()
+  await expect(page.getByLabel('Pilih Minyak goreng untuk dipindahkan')).toBeChecked()
+  await expect(page.getByRole('checkbox', { name: 'Sudah dibeli: Minyak goreng' })).not.toBeChecked()
+  expect(calls.filter(call => call.path.endsWith('/checklist'))).toHaveLength(1)
+  await page.getByLabel('Aksi Minyak goreng', { exact: true }).click()
+  await expect(page.locator('.shopping-item-menu[open]')).toHaveCount(1)
+  await page.getByRole('heading', { name: 'Daftar belanja', exact: true }).click()
+  await expect(page.locator('.shopping-item-menu[open]')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Pilih Minyak goreng', exact: true }).click()
+  await expect(page.getByLabel('Pilih Minyak goreng untuk dipindahkan')).not.toBeChecked()
+})
+
+for (const width of [390, 1440]) {
+  test(`checklist loading hanya per item, daftar stabil dan tanpa refetch ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 })
+    const reads: string[] = []
+    page.on('request', request => { if (request.method() === 'GET' && request.url().includes('/rencana-belanja')) reads.push(request.url()) })
+    await setup(page)
+    await expect(page.locator('.shopping-calendar')).toHaveAttribute('aria-busy', 'false')
+    const initialReads = reads.length
+    const first = page.locator('.shopping-item').filter({ hasText: 'Gula Pasir' })
+    const second = page.locator('.shopping-item').filter({ hasText: 'Minyak goreng' })
+    await first.evaluate(node => node.setAttribute('data-continuity', 'original'))
+    const top = await first.evaluate(node => node.getBoundingClientRect().top + scrollY)
+    let releaseFirst = () => {}, releaseSecond = () => {}
+    const firstGate = new Promise<void>(resolve => { releaseFirst = resolve })
+    const secondGate = new Promise<void>(resolve => { releaseSecond = resolve })
+    let writes = 0
+    await page.route('http://api.test/api/v1/rencana-belanja/*/checklist', async route => {
+      if (route.request().method() === 'PUT') {
+        writes++
+        await (route.request().url().includes('/1/checklist') ? firstGate : secondGate)
+      }
+      await route.fallback()
+    })
+    try {
+      await first.getByRole('button', { name: 'Checklist Gula Pasir', exact: true }).click()
+      await expect(first.getByRole('status', { name: 'Menyimpan Gula Pasir' })).toBeVisible()
+      await expect(first).toHaveAttribute('aria-busy', 'true')
+      await expect(second.getByRole('button', { name: 'Checklist Minyak goreng', exact: true })).toBeEnabled()
+      await expect(page.locator('.shopping-list-section')).toHaveAttribute('aria-busy', 'false')
+      await expect(page.locator('.shopping-calendar')).toHaveAttribute('aria-busy', 'false')
+      await expect(page.getByText('Memperbarui belanjaan…', { exact: true })).toHaveCount(0)
+      await first.evaluate(node => (node as HTMLElement).click())
+      expect(writes).toBe(1)
+      await second.getByRole('button', { name: 'Checklist Minyak goreng', exact: true }).click()
+      await expect(second.getByRole('status', { name: 'Menyimpan Minyak goreng' })).toBeVisible()
+      releaseSecond()
+      await expect(second.getByRole('checkbox')).toBeChecked()
+      await expect(first.getByRole('status', { name: 'Menyimpan Gula Pasir' })).toBeVisible()
+      releaseFirst()
+      await expect(first.getByRole('checkbox')).toBeChecked()
+      await expect(first).toHaveAttribute('aria-busy', 'false')
+      await expect(first).toHaveAttribute('data-continuity', 'original')
+      await expect.poll(() => first.evaluate(node => node.getBoundingClientRect().top + scrollY)).toBe(top)
+      await expect(page.locator('.shopping-calendar-day[data-selected="true"]')).toHaveAttribute('aria-label', /2 dari 2 barang dibeli/)
+      expect(writes).toBe(2)
+      expect(reads).toHaveLength(initialReads)
+    } finally { releaseFirst(); releaseSecond() }
+  })
+}
+
+test('filter belum dibeli tidak menghilangkan item saat request berjalan atau gagal', async ({ page }) => {
+  await setup(page)
+  await page.getByRole('button', { name: /^Belum dibeli/ }).click()
+  let release = () => {}
+  const gate = new Promise<void>(resolve => { release = resolve })
+  await page.route('http://api.test/api/v1/rencana-belanja/1/checklist', async route => {
+    if (route.request().method() === 'OPTIONS') { await route.fallback(); return }
+    await gate
+    await route.fulfill({ status: 500, headers: { 'access-control-allow-origin': '*' }, json: { error: { message: 'Checklist gagal disimpan' } } })
+  })
+  const row = page.locator('.shopping-item').filter({ hasText: 'Gula Pasir' })
+  try {
+    await row.getByRole('button', { name: 'Checklist Gula Pasir', exact: true }).click()
+    await expect(row.getByRole('status', { name: 'Menyimpan Gula Pasir' })).toBeVisible()
+    await expect(page.locator('.shopping-item')).toHaveCount(2)
+    release()
+    await expect(page.locator('.shopping-plan-page').getByRole('alert')).toContainText('Checklist gagal disimpan')
+    await expect(row.getByRole('checkbox')).not.toBeChecked()
+    await expect(row.getByRole('button')).toBeEnabled()
+    await expect(row.getByRole('status')).toHaveCount(0)
+    await page.clock.install()
+    await page.clock.fastForward(6000)
+    await expect(page.locator('.shopping-plan-page').getByRole('alert')).toContainText('Checklist gagal disimpan')
+  } finally { release() }
+})
+
+test('notifikasi checklist otomatis hilang setelah 5 detik tanpa menggeser daftar', async ({ page }) => {
+  await setup(page)
+  await page.clock.install({ time: new Date('2026-11-10T03:00:00Z') })
+  await page.clock.pauseAt(new Date('2026-11-10T03:00:01Z'))
+  const row = page.locator('.shopping-item').filter({ hasText: 'Gula Pasir' })
+  const top = await row.evaluate(node => node.getBoundingClientRect().top + scrollY)
+  await row.getByRole('button', { name: 'Checklist Gula Pasir', exact: true }).click()
+  const notice = page.locator('.shopping-plan-page .pos-toast')
+  await expect(notice).toContainText('ditandai sudah dibeli')
+  await page.clock.runFor(4999)
+  await expect(notice).toBeVisible()
+  await page.clock.runFor(1)
+  await expect(notice).toHaveCount(0)
+  expect(await row.evaluate(node => node.getBoundingClientRect().top + scrollY)).toBe(top)
+  await expect(row.getByRole('checkbox')).toBeChecked()
 })

@@ -73,6 +73,19 @@ test('scan exact, cash checkout, dan payload API', async ({ page }) => {
   await page.screenshot({ path: 'test-results/kasir-payment.png', fullPage: true })
 })
 
+test('klik nama pada daftar belanja kasir memilih baris dan menyeleksi jumlah', async ({ page }) => {
+  await mockAPI(page)
+  await page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }).click()
+  const line = page.locator('.sale-cart-line').filter({ hasText: 'Beras Ramos' })
+  await line.getByRole('heading', { name: 'Beras Ramos', exact: true }).click()
+  const quantity = line.getByLabel('Jumlah Beras Ramos', { exact: true })
+  await expect(quantity).toBeFocused()
+  await expect(line).toHaveAttribute('data-active', 'true')
+  expect(await quantity.evaluate(input => [(input as HTMLInputElement).selectionStart, (input as HTMLInputElement).selectionEnd])).toEqual([0, 1])
+  await line.getByRole('button', { name: 'Tambah Beras Ramos', exact: true }).click()
+  await expect(quantity).toHaveValue('2')
+})
+
 test('pembelian mencatat sumber, harga beli dan metode yang sesuai', async ({ page }) => {
   const calls = await mockAPI(page)
   await page.locator('.pos-more > summary').click()
@@ -193,8 +206,34 @@ test('F10 memakai jalur buka laci dan menampilkan hasilnya', async ({ page }) =>
   await mockAPI(page, 'KASIR')
   // Mode browser default belum mengaktifkan QZ Tray. Pesannya membuktikan handler shortcut dipanggil tanpa akses perangkat.
   await page.keyboard.press('F10')
-  await expect(page.getByRole('alert').filter({ hasText: 'QZ Tray' })).toBeVisible()
+  await expect(page.locator('.pos-toast')).toContainText('QZ Tray')
+  await expect(page.locator('.pos-error-banner')).toHaveCount(0)
 })
+
+for (const width of [390, 1440]) {
+  test(`perangkat laci belum sesuai menampilkan toast 5 detik tanpa mengganggu penjualan ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 })
+    await mockAPI(page, 'KASIR')
+    await page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }).click()
+    await page.clock.install({ time: new Date('2026-11-10T03:00:00Z') })
+    await page.clock.pauseAt(new Date('2026-11-10T03:00:01Z'))
+    await page.getByRole('button', { name: 'Buka Laci', exact: true }).click()
+    const notice = page.locator('.pos-toast')
+    await expect(notice).toContainText('Buka laci belum berhasil:')
+    await expect(notice).toContainText('QZ Tray')
+    await expect(page.locator('.pos-error-banner')).toHaveCount(0)
+    await page.clock.runFor(4999)
+    await expect(notice).toBeVisible()
+    await page.clock.runFor(1)
+    await expect(notice).toHaveCount(0)
+    await expect(page.getByLabel('Jumlah Beras Ramos', { exact: true })).toHaveValue('1')
+    await page.keyboard.press('F10')
+    await expect(notice).toContainText('QZ Tray')
+    await notice.getByRole('button', { name: 'Tutup pemberitahuan', exact: true }).click()
+    await expect(notice).toHaveCount(0)
+    await expect(page.locator('.pos-error-banner')).toHaveCount(0)
+  })
+}
 
 
 test('lebar panel dapat diubah horizontal dan tombol bayar tetap selebar panel', async ({ page }) => {
@@ -328,6 +367,7 @@ test('nominal form baru kosong dan diskon serta tarif kosong dikirim sebagai nol
   await expect(price).toHaveValue('15.000')
   await price.fill('0,50')
   await expect(price).toHaveValue('0,50')
+  page.once('dialog', dialog => dialog.accept())
   await page.getByRole('button', { name: 'Tutup form produk', exact: true }).click()
   await page.locator('.pos-more > summary').click()
   await nav.getByRole('button', { name: 'Pembelian', exact: true }).click()
@@ -346,6 +386,7 @@ test('nominal form baru kosong dan diskon serta tarif kosong dikirim sebagai nol
   await page.locator('.pos-more > summary').click()
   await nav.getByRole('button', { name: 'Data Master', exact: true }).click()
   await page.getByRole('button', { name: 'Metode Pembayaran', exact: true }).click()
+  await page.getByRole('button', { name: 'Tambah Metode Pembayaran', exact: true }).click()
   await expect(page.getByLabel('Tarif persen', { exact: true })).toHaveValue('')
   await expect(page.getByLabel('Tarif tetap (Rp)', { exact: true })).toHaveValue('')
   await page.getByLabel('Nama metode', { exact: true }).fill('Metode tanpa biaya')
@@ -524,24 +565,22 @@ for (const width of [320, 390, 768, 1440]) {
     await dialog.getByRole('button', { name: 'Selesai', exact: true }).click()
     await page.getByLabel('Menu lainnya', { exact: true }).click()
     await nav.getByRole('button', { name: 'Data Master', exact: true }).click()
-    await expect(page.getByLabel('Nama kategori', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Tambah kategori', exact: true })).toBeVisible()
     await noOverflow()
     await page.getByRole('button', { name: 'Tempat Beli / Sales', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Daftar Tempat Beli / Sales' })).toBeVisible()
-    if (width < 768) {
-      expect((await page.locator('.master-list').boundingBox())!.y).toBeLessThan((await page.locator('.master-editor').boundingBox())!.y)
-    }
-    await page.locator('.master-row').getByRole('button', { name: 'Edit', exact: true }).click()
+    await page.getByRole('button', { name: 'Edit Grosir Makmur', exact: true }).click()
     await expect(page.getByLabel('Nama tempat beli / sales', { exact: true })).toHaveValue('Grosir Makmur')
     await expect(page.getByLabel('Nama tempat beli / sales', { exact: true })).toBeFocused()
     await noOverflow()
-    await page.getByRole('button', { name: 'Batal edit', exact: true }).click()
-    if (width < 768) {
-      await page.getByRole('link', { name: 'Tambah Tempat Beli / Sales', exact: true }).click()
-      await expect(page.getByLabel('Nama tempat beli / sales', { exact: true })).toBeFocused()
-    }
+    await page.getByRole('button', { name: 'Tutup Edit Tempat Beli / Sales', exact: true }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Tambah Tempat Beli / Sales', exact: true }).click()
+    await expect(page.getByLabel('Nama tempat beli / sales', { exact: true })).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
     await page.getByRole('button', { name: 'Metode Pembayaran', exact: true }).click()
-    await page.locator('.master-row').filter({ hasText: 'Transfer Supplier' }).getByRole('button', { name: 'Edit', exact: true }).click()
+    await page.getByRole('button', { name: 'Edit Transfer Supplier', exact: true }).click()
     await expect(page.getByLabel('Nama metode', { exact: true })).toHaveValue('Transfer Supplier')
     await expect(page.getByLabel('Nama metode', { exact: true })).toBeFocused()
     await noOverflow()
@@ -549,6 +588,8 @@ for (const width of [320, 390, 768, 1440]) {
     const updateRequest = page.waitForRequest(request => request.method() === 'PUT' && request.url().endsWith('/metode-pembayaran/3'))
     await page.getByRole('button', { name: 'Simpan Metode', exact: true }).click()
     expect((await updateRequest).postDataJSON().nama).toBe('Transfer Supplier')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Tambah Metode Pembayaran', exact: true }).click()
     await expect(page.getByLabel('Nama metode', { exact: true })).toHaveValue('')
   })
 }
@@ -920,7 +961,7 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 2560, height: 14
     await fullWidth('.masters-page')
     await page.getByLabel('Menu lainnya', { exact: true }).click()
     await nav.getByRole('button', { name: 'Perangkat', exact: true }).click()
-    await fullWidth('main > .mx-auto')
+    await fullWidth('.pos-view-content > .mx-auto')
     // Workspace width must not stretch focused forms/dialogs to the monitor width.
     await nav.getByRole('button', { name: 'Penjualan', exact: true }).click()
     await page.getByRole('button', { name: /^Bayar/ }).click()
