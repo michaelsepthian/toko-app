@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { LoaderCircle, Search, Star } from 'lucide-react'
 import type { Product } from '@/lib/types'
 import { ProductLoading } from './product-loading'
@@ -39,6 +39,15 @@ function CatalogRows({ products, categories, highlight, locked, active, onHighli
 }
 
 function MeasuredRows({ products, categories, highlight, locked, active, onHighlight, onAdd, favorites, onToggleFavorite, favoriteEditable, favoriteBusyID, viewport, scroller, columns }: Props & { viewport: { width: number; height: number }; scroller: React.RefObject<HTMLDivElement | null>; columns: number }) {
+  const [hovered, setHovered] = useState<number | null>(null)
+  // Keep feedback on the hovered/tapped card when adding resets the keyboard
+  // selection. Keyboard input takes over without relying on native :hover.
+  useEffect(() => {
+    const clearHover = () => setHovered(null)
+    window.addEventListener('keydown', clearHover, true)
+    return () => window.removeEventListener('keydown', clearHover, true)
+  }, [])
+  const selected = hovered ?? highlight
   const [limit, setLimit] = useState(productPageSize)
   const visibleCount = Math.min(products.length, Math.max(limit, Math.ceil((highlight + 1) / productPageSize) * productPageSize))
   useLayoutEffect(() => {
@@ -93,13 +102,13 @@ function MeasuredRows({ products, categories, highlight, locked, active, onHighl
   if (!products.length) return <div className="sale-empty sale-no-products"><Search /><strong>Produk tidak ditemukan</strong><p>Periksa nama, SKU, atau barcode produk.</p></div>
   const { start, end } = catalogWindow(offsets, Math.max(0, top - 14), viewport.height)
   const hasMore = visibleCount < products.length
-  return <div className="sale-virtual-space" data-loaded-count={visibleCount} style={{ height: offsets.at(-1)! + 17 + (hasMore ? 48 : 0) }}>
+  return <div className="sale-virtual-space" data-loaded-count={visibleCount} onPointerLeave={event => { if (event.pointerType === 'mouse') setHovered(null) }} style={{ height: offsets.at(-1)! + 17 + (hasMore ? 48 : 0) }}>
     {Array.from({ length: end - start }, (_, offset) => {
       const row = start + offset
       return <MeasuredRow key={row} row={row} top={offsets[row] + 14} columns={columns} onMeasure={measureRow}>
         {products.slice(row * columns, Math.min((row + 1) * columns, visibleCount)).map((product, column) => {
           const index = row * columns + column
-          return <div className="sale-product-tile" data-favorite-busy={favoriteBusyID === product.id} key={product.id}><button type="button" disabled={locked || favoriteBusyID === product.id} aria-label={`Tambah ${product.nama} ke keranjang`} data-highlighted={index === highlight} aria-current={index === highlight ? 'true' : undefined} onFocus={() => onHighlight(index)} onMouseEnter={() => onHighlight(index)} className="sale-product" onClick={() => onAdd(product)}>
+          return <div className="sale-product-tile" data-favorite-busy={favoriteBusyID === product.id} key={product.id}><button type="button" disabled={locked || favoriteBusyID === product.id} aria-label={`Tambah ${product.nama} ke keranjang`} data-highlighted={index === selected} aria-current={index === selected ? 'true' : undefined} onFocus={() => onHighlight(index)} onPointerDown={() => { setHovered(index); onHighlight(index) }} onPointerMove={event => { if (event.pointerType === 'mouse') { setHovered(index); onHighlight(index) } }} onPointerLeave={event => { if (event.pointerType === 'mouse') setHovered(null) }} onPointerCancel={() => setHovered(null)} className="sale-product" onClick={() => onAdd(product)}>
             <div className="sale-product-top"><span>{categories.get(product.kategori_id) ?? 'Produk'}</span></div><h3>{product.nama}</h3><strong>{money(product.harga_jual)}</strong>
           </button><button type="button" className="sale-product-favorite" disabled={locked || favoriteBusyID !== null || !favoriteEditable} aria-busy={favoriteBusyID === product.id} aria-label={favoriteBusyID === product.id ? `Menyimpan favorit ${product.nama}` : `${favorites.has(product.id) ? 'Hapus' : 'Tandai'} favorit ${product.nama}`} aria-pressed={favorites.has(product.id)} title={!favoriteEditable ? 'Favorit toko diatur oleh pemilik' : favorites.has(product.id) ? 'Hapus favorit untuk semua pengguna' : 'Jadikan favorit untuk semua pengguna'} onClick={() => onToggleFavorite(product.id)}>{favoriteBusyID === product.id ? <LoaderCircle className="animate-spin" /> : <Star fill={favorites.has(product.id) ? 'currentColor' : 'none'} />}</button>{favoriteBusyID === product.id && <div className="product-favorite-progress" aria-hidden="true"><LoaderCircle /><span>Menyimpan favorit…</span></div>}</div>
         })}
