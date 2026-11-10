@@ -437,3 +437,37 @@ for (const width of [320, 1440]) {
     await page.screenshot({ path: `test-results/operational-date-${width}.png` })
   })
 }
+
+test.describe('pilihan produk mobile', () => {
+  test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
+  test('tap produk di awal daftar hanya menyorot satu kartu', async ({ page }) => {
+    await mockAPI(page)
+    const base = { sku: 'BR-001', barcode: null, harga_jual: '10000', stok_minimum: '0', kategori_id: 1, satuan_id: 1, aktif: true }
+    await page.route('http://api.test/api/v1/master-data', route => route.fulfill({
+      headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization,content-type' },
+      json: { data: { version: '2', products: [{ ...base, id: 1, nama: 'Beras Ramos' }, { ...base, id: 2, sku: 'MG-002', nama: 'Minyak Goreng' }], categories: [{ id: 1, nama: 'Sembako' }], units: [{ id: 1, nama: 'pcs' }], payments: [{ id: 1, nama: 'Tunai', jenis: 'CASH', aktif: true, untuk_penjualan: true, tarif_persen: '0', tarif_tetap: '0', penanggung_biaya: 'TOKO' }], sources: [] } },
+    }))
+    await page.reload()
+    const cards = page.locator('.sale-product')
+    await expect(cards).toHaveCount(2)
+    const second = page.getByRole('button', { name: 'Tambah Minyak Goreng ke keranjang', exact: true })
+    await page.getByLabel('Cari atau scan produk penjualan').focus()
+    await second.tap()
+    await expect(page.getByLabel('Jumlah Minyak Goreng', { exact: true })).toHaveValue('1')
+    await expect(page.locator('.sale-product[data-highlighted="true"]')).toHaveCount(1)
+    // Mobile keeps :hover on the last tapped card after focus returns to search.
+    await expect.poll(() => cards.evaluateAll(nodes => new Set(nodes.map(node => getComputedStyle(node).backgroundColor)).size)).toBe(2)
+    await second.tap()
+    await expect(page.getByLabel('Jumlah Minyak Goreng', { exact: true })).toHaveValue('2')
+    await expect(page.getByLabel('Jumlah Beras Ramos', { exact: true })).toHaveCount(0)
+    await expect.poll(() => cards.evaluateAll(nodes => new Set(nodes.map(node => getComputedStyle(node).backgroundColor)).size)).toBe(2)
+    await page.locator('.sale-catalog').scrollIntoViewIfNeeded()
+    await page.screenshot({ path: 'test-results/catalog-selection-mobile.png' })
+    const search = page.getByLabel('Cari atau scan produk penjualan')
+    await search.focus()
+    await search.press('ArrowDown')
+    await expect(second).toHaveAttribute('data-highlighted', 'true')
+    await search.press('Enter')
+    await expect(page.getByLabel('Jumlah Minyak Goreng', { exact: true })).toHaveValue('3')
+  })
+})

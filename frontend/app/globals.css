@@ -223,7 +223,7 @@
 .sale-key-hint kbd, .sale-dialog-hint kbd { font-family: inherit; background: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 1px 4px; }
 .sale-products-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); grid-auto-rows: minmax(164px,1fr); gap: 11px; padding: 14px; overflow-y: auto; min-height: 0; flex: 1; align-content: start; }
 .sale-product { min-width: 0; background: var(--background); border: 1px solid var(--border); border-radius: 16px; padding: 15px; text-align: left; display: flex; flex-direction: column; transition: border-color .12s,background .12s,transform .12s; cursor: pointer; }
-.sale-product:hover, .sale-product[data-highlighted="true"] { border-color: var(--primary); background: color-mix(in oklch,var(--primary) 5%,var(--background)); }
+.sale-product[data-highlighted="true"] { border-color: var(--primary); background: color-mix(in oklch,var(--primary) 5%,var(--background)); }
 .sale-product:active { transform: scale(.98); }
 .sale-product:focus-visible { outline: 3px solid var(--ring); outline-offset: -3px; }
 .sale-product:disabled { opacity: .35; cursor: not-allowed; }
@@ -314,6 +314,7 @@
 }
 @media (prefers-reduced-motion:reduce) { .sale-product,.sale-search { transition: none; } }
 
+/* Gunakan satu state pilihan; :hover dapat tertinggal setelah tap di layar sentuh. */
 /* Pilihan kasir terlihat jelas pada layar terang maupun gelap. */
 .sale-product[data-highlighted="true"], .sale-product:focus-visible {
   border-color: var(--primary);
@@ -438,7 +439,6 @@
 .sale-search-area { padding: 16px; }
 .sale-search::placeholder, .sale-search input::placeholder { color: var(--muted-foreground); opacity: .85; }
 .sale-product { background: var(--card); }
-.sale-product:hover { background: var(--selection); }
 .sale-product h3 { font-weight: 650; line-height: 1.4; }
 .sale-product > strong { font-weight: 750; letter-spacing: -.4px; }
 .sale-product-top span { font-size: 12px; padding: 4px 8px; border-radius: 7px; color: var(--muted-foreground); }
