@@ -25,7 +25,8 @@ for attempt in {1..60}; do
 done
 [[ $ready == true ]] || { echo 'PostgreSQL test tidak siap' >&2; exit 1; }
 psql() { docker exec -i "$container" psql -X -U postgres -d toko_test -v ON_ERROR_STOP=1 "$@"; }
-psql -c 'CREATE ROLE toko_app; GRANT USAGE, CREATE ON SCHEMA public TO toko_app;' >/dev/null
+# Match deploy/postgres/01-init.sh: database ownership allows trusted extensions.
+psql -c 'CREATE ROLE toko_app; ALTER DATABASE toko_test OWNER TO toko_app; GRANT USAGE, CREATE ON SCHEMA public TO toko_app;' >/dev/null
 psql -c 'SET ROLE toko_app' -f - < database/schema.sql >/dev/null
 python3 - "$temporary" <<'PY'
 import importlib.util
