@@ -15,7 +15,6 @@ import (
 
 type masterData struct {
 	Version    string                   `json:"version"`
-	Products   []model.Produk           `json:"products"`
 	Categories []model.Kategori         `json:"categories"`
 	Units      []model.Satuan           `json:"units"`
 	Payments   []model.MetodePembayaran `json:"payments"`
@@ -57,12 +56,12 @@ func (data masterData) forUser(owner bool) masterData {
 	}
 	return data
 }
-func registerCatalog(mux *http.ServeMux, db *gorm.DB) *catalogCache {
+func registerCatalog(mux *http.ServeMux, db *gorm.DB, productCacheTTL time.Duration) *catalogCache {
 	cache := newCatalogCache(func(ctx context.Context) (masterData, error) {
-		data := masterData{Products: []model.Produk{}, Categories: []model.Kategori{}, Units: []model.Satuan{}, Payments: []model.MetodePembayaran{}, Sources: []model.SumberPembelian{}}
-		// Kelima tabel dibaca pada snapshot database yang sama, tanpa LIMIT/OFFSET.
+		data := masterData{Categories: []model.Kategori{}, Units: []model.Satuan{}, Payments: []model.MetodePembayaran{}, Sources: []model.SumberPembelian{}}
+		// Master kecil saja; produk dibaca per halaman melalui /katalog/produk.
 		err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			for _, rows := range []any{&data.Products, &data.Categories, &data.Units, &data.Payments, &data.Sources} {
+			for _, rows := range []any{&data.Categories, &data.Units, &data.Payments, &data.Sources} {
 				if err := tx.Order("id DESC").Find(rows).Error; err != nil {
 					return err
 				}
@@ -71,6 +70,7 @@ func registerCatalog(mux *http.ServeMux, db *gorm.DB) *catalogCache {
 		}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 		return data, err
 	})
+	registerProductCatalog(mux, db, cache.version, productCacheTTL)
 	mux.HandleFunc("GET /api/v1/master-data/version", func(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, map[string]string{"version": cache.version()})
 	})

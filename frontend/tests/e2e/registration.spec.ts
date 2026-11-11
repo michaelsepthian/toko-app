@@ -16,7 +16,7 @@ async function authAPI(page: Page, initialized = false) {
       await route.fulfill({ headers:cors, json:{ data:{ user, access_token:token, expires_at:new Date(Date.now()+3600000).toISOString() } } }); return
     }
     if (req.headers().authorization !== `Bearer ${token}`) { await route.fulfill({ status:401, headers:cors, json:{ error:{ message:'Token diperlukan' } } }); return }
-    await route.fulfill({ headers:cors, json:{ data:path === '/me' ? user : path === '/master-data' ? { version:'1',products:[],categories:[],units:[],payments:[],sources:[] } : path === '/master-data/version' ? { version:'1' } : [] } })
+    await route.fulfill({ headers:cors, json:{ data:path === '/me' ? user : path === '/master-data' ? { version:'1',categories:[],units:[],payments:[],sources:[] } : path === '/master-data/version' ? { version:'1' } : path === '/katalog/produk' ? { items:[],has_next:false,next_cursor:null,version:'1' } : [] } })
   })
   await page.goto('/')
   return calls

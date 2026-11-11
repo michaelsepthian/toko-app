@@ -15,6 +15,7 @@ import { calendarDays, shiftShoppingMonth, shoppingDateLabel, shoppingQuantity }
 import type { Data, ShoppingDay, ShoppingItem, ShoppingSource } from '@/lib/types'
 import { ErrorBox, inputClass } from './common'
 import { SearchSelect } from './search-select'
+import { ProductSelect } from './product-select'
 
 type Draft = { key: number; product: string; name: string; quantity: string; unit: string; note: string }
 type Dialog = { kind: 'move'; ids: number[] } | { kind: 'edit' | 'delete'; item: ShoppingItem }
@@ -25,19 +26,15 @@ function itemPayload(draft: Draft) {
   const quantity = draft.quantity.trim().replace(',', '.')
   if (!draft.product || (draft.product === 'other' && !draft.name.trim())) throw new Error('Pilih produk atau isi nama barang lainnya di setiap baris.')
   if (quantity && !validNumber(quantity, 3, false)) throw new Error('Jumlah boleh kosong; jika diisi harus lebih dari 0 dan maksimal 3 desimal.')
-  return { produk_id: draft.product === 'other' ? null : Number(draft.product), nama_barang: draft.product === 'other' ? draft.name.trim() : '', jumlah: quantity || null, satuan: draft.unit.trim(), catatan: draft.note.trim() }
+  return { produk_id: draft.product === 'other' ? null : Number(draft.product), nama_barang: draft.product === 'other' ? draft.name.trim() : '', jumlah: quantity || null, satuan: draft.product === 'other' ? draft.unit.trim() : '', catatan: draft.note.trim() }
 }
 
 function ItemFields({ draft, data, onChange }: { draft: Draft; data: Data; onChange: (draft: Draft) => void }) {
-  const product = data.products.find(item => String(item.id) === draft.product)
-  const unit = product ? data.units.find(item => item.id === product.satuan_id)?.nama ?? '' : draft.unit
+  const productSelected = Boolean(draft.product && draft.product !== 'other')
   return <>
-    <div className="shopping-product-field"><span className="shopping-label">Barang</span><SearchSelect aria-label={`Barang baris ${draft.key}`} value={draft.product} onValueChange={value => onChange({ ...draft, product: value })} required>
-      <option value="">Pilih atau cari produk</option><option value="other">Lainnya — tulis barang baru</option>
-      {data.products.filter(item => item.aktif || String(item.id) === draft.product).map(item => <option key={item.id} value={item.id}>{item.nama}</option>)}
-    </SearchSelect>{draft.product === 'other' && <input aria-label={`Nama barang lainnya baris ${draft.key}`} className={inputClass} placeholder="Contoh: kantong kemasan" maxLength={300} required value={draft.name} onChange={event => onChange({ ...draft, name: event.target.value })} />}</div>
+    <div className="shopping-product-field"><span className="shopping-label">Barang</span><ProductSelect label={`Barang baris ${draft.key}`} value={draft.product} onValueChange={(value, product) => onChange({ ...draft, product: value, unit: product ? data.units.find(unit => unit.id === product.satuan_id)?.nama ?? '' : draft.unit })} required allowOther />{draft.product === 'other' && <input aria-label={`Nama barang lainnya baris ${draft.key}`} className={inputClass} placeholder="Contoh: kantong kemasan" maxLength={300} required value={draft.name} onChange={event => onChange({ ...draft, name: event.target.value })} />}</div>
     <label className="shopping-field"><span>Jumlah <small>opsional</small></span><input aria-label={`Jumlah baris ${draft.key}`} className={inputClass} inputMode="decimal" placeholder="Tidak harus diisi" value={draft.quantity} onChange={event => onChange({ ...draft, quantity: event.target.value })} /></label>
-    <label className="shopping-field"><span>Satuan <small>opsional</small></span><input aria-label={`Satuan baris ${draft.key}`} className={inputClass} placeholder="kg, dus, pcs…" maxLength={100} value={unit} readOnly={Boolean(product)} onChange={event => onChange({ ...draft, unit: event.target.value })} /></label>
+    <label className="shopping-field"><span>Satuan <small>opsional</small></span><input aria-label={`Satuan baris ${draft.key}`} className={inputClass} placeholder="kg, dus, pcs…" maxLength={100} value={draft.unit} readOnly={productSelected} onChange={event => onChange({ ...draft, unit: event.target.value })} /></label>
     <label className="shopping-field shopping-note-field"><span>Catatan <small>opsional</small></span><input aria-label={`Catatan baris ${draft.key}`} className={inputClass} placeholder="Merek, ukuran, atau pengingat" maxLength={2000} value={draft.note} onChange={event => onChange({ ...draft, note: event.target.value })} /></label>
   </>
 }

@@ -18,7 +18,8 @@ async function setup(page: Page, role = 'PEMILIK') {
     const data = path === '/setup' ? { initialized: true, registration_open: false }
       : path === '/auth/login' ? { user, access_token: 'toko_' + 'a'.repeat(64), expires_at: new Date(Date.now() + 3600000).toISOString() }
       : path === '/me' ? user
-      : path === '/master-data' ? { version: '1', products: [], categories: [], units: [], payments: [], sources: [] }
+      : path === '/master-data' ? { version: '1', categories: [], units: [], payments: [], sources: [] }
+      : path === '/katalog/produk' ? { items: [], has_next: false, next_cursor: null, version: '1' }
       : path === '/master-data/version' ? { version: '1' }
       : path === '/pengguna' ? users : []
     await route.fulfill({ headers: cors, json: { data } })

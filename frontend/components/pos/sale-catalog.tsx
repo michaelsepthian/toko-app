@@ -7,9 +7,8 @@ import { ProductLoading } from './product-loading'
 import { money } from '@/lib/pos'
 import { catalogOffsets, catalogWindow } from '@/lib/catalog-window'
 import { catalogColumns } from '@/lib/catalog-layout'
-import { productPageSize } from '@/lib/use-product-pages'
 
-type Props = { loading?: boolean; products: Product[]; categories: Map<number, string>; highlight: number; locked: boolean; active: boolean; onHighlight: (index: number) => void; onAdd: (product: Product) => void; favorites: ReadonlySet<number>; onToggleFavorite: (id: number) => void; favoriteEditable: boolean; favoriteBusyID: number | null }
+type Props = { loading?: boolean; products: Product[]; categories: Map<number, string>; highlight: number; locked: boolean; active: boolean; onHighlight: (index: number) => void; onAdd: (product: Product) => void; favorites: ReadonlySet<number>; onToggleFavorite: (id: number) => void; favoriteEditable: boolean; favoriteBusyID: number | null; hasNext: boolean; loadingNext: boolean; onLoadNext: () => void; pageKey: string; loadError: boolean }
 
 export function SaleCatalog(props: Props) {
   const scroller = useRef<HTMLDivElement>(null)
@@ -31,14 +30,14 @@ export function SaleCatalog(props: Props) {
   </div>
 }
 
-function CatalogRows({ products, categories, highlight, locked, active, onHighlight, onAdd, favorites, onToggleFavorite, favoriteEditable, favoriteBusyID, viewport, scroller }: Props & { viewport: { width: number; height: number }; scroller: React.RefObject<HTMLDivElement | null> }) {
+function CatalogRows(props: Props & { viewport: { width: number; height: number }; scroller: React.RefObject<HTMLDivElement | null> }) {
+  const { viewport } = props
   const columns = catalogColumns(viewport.width)
-  const resultKey = useMemo(() => products.map(product => product.id).join(','), [products])
-  // A separate keyed component discards old measurements when the search changes.
-  return <MeasuredRows key={resultKey} {...{ products, categories, highlight, locked, active, onHighlight, onAdd, favorites, onToggleFavorite, favoriteEditable, favoriteBusyID, viewport, scroller, columns }} />
+  // Appending a server page must preserve measurements and scroll position.
+  return <MeasuredRows key={props.pageKey} {...props} columns={columns} />
 }
 
-function MeasuredRows({ products, categories, highlight, locked, active, onHighlight, onAdd, favorites, onToggleFavorite, favoriteEditable, favoriteBusyID, viewport, scroller, columns }: Props & { viewport: { width: number; height: number }; scroller: React.RefObject<HTMLDivElement | null>; columns: number }) {
+function MeasuredRows({ products, categories, highlight, locked, active, onHighlight, onAdd, favorites, onToggleFavorite, favoriteEditable, favoriteBusyID, viewport, scroller, columns, hasNext, loadingNext, onLoadNext, loadError }: Props & { viewport: { width: number; height: number }; scroller: React.RefObject<HTMLDivElement | null>; columns: number }) {
   const [hovered, setHovered] = useState<number | null>(null)
   // Keep feedback on the hovered/tapped card when adding resets the keyboard
   // selection. Keyboard input takes over without relying on native :hover.
@@ -48,11 +47,7 @@ function MeasuredRows({ products, categories, highlight, locked, active, onHighl
     return () => window.removeEventListener('keydown', clearHover, true)
   }, [])
   const selected = hovered ?? highlight
-  const [limit, setLimit] = useState(productPageSize)
-  const visibleCount = Math.min(products.length, Math.max(limit, Math.ceil((highlight + 1) / productPageSize) * productPageSize))
-  useLayoutEffect(() => {
-    if (highlight >= limit) setLimit(Math.ceil((highlight + 1) / productPageSize) * productPageSize)
-  }, [highlight, limit])
+  const visibleCount = products.length
   const [heights, setHeights] = useState<Map<number, number>>(() => new Map())
   const [top, setTop] = useState(0)
   const offsets = useMemo(() => catalogOffsets(Math.ceil(visibleCount / columns), heights), [visibleCount, columns, heights])
@@ -68,25 +63,24 @@ function MeasuredRows({ products, categories, highlight, locked, active, onHighl
   useLayoutEffect(() => {
     const node = scroller.current
     if (!node) return
-    node.scrollTop = 0
     let frame = 0
     const onScroll = () => {
       if (!frame) frame = requestAnimationFrame(() => {
         frame = 0; setTop(node.scrollTop)
-        if (node.scrollHeight - node.scrollTop - node.clientHeight < 250) setLimit(current => Math.min(products.length, current + productPageSize))
+        if (active && hasNext && !loadingNext && !loadError && node.scrollHeight - node.scrollTop - node.clientHeight < 250) onLoadNext()
       })
     }
     node.addEventListener('scroll', onScroll, { passive: true })
     return () => { node.removeEventListener('scroll', onScroll); cancelAnimationFrame(frame) }
-  }, [scroller, products.length])
+  }, [scroller, active, hasNext, loadingNext, onLoadNext, loadError])
   useLayoutEffect(() => {
     const node = scroller.current
     // Tall/wide monitors can fit a complete page. Fill the viewport until there
     // is something to scroll, otherwise the remaining products are unreachable.
-    if (active && node && node.clientHeight > 0 && visibleCount < products.length && node.scrollHeight - node.scrollTop - node.clientHeight < 250) {
-      setLimit(current => Math.min(products.length, current + productPageSize))
+    if (active && node && node.clientHeight > 0 && hasNext && !loadingNext && !loadError && node.scrollHeight - node.scrollTop - node.clientHeight < 250) {
+      onLoadNext()
     }
-  }, [active, offsets, viewport.height, visibleCount, products.length, scroller])
+  }, [active, offsets, viewport.height, visibleCount, hasNext, loadingNext, loadError, onLoadNext, scroller])
   useLayoutEffect(() => {
     const node = scroller.current
     if (!node || !active || !products.length) return
@@ -97,11 +91,12 @@ function MeasuredRows({ products, categories, highlight, locked, active, onHighl
     if (start < node.scrollTop) node.scrollTop = Math.max(0, start - 14)
     else if (end > node.scrollTop + node.clientHeight) node.scrollTop = end - node.clientHeight + 14
     setTop(node.scrollTop)
-  }, [highlight, active, columns, products.length, scroller])
+  }, [highlight, active, columns, scroller])
 
+  if (!products.length && loadError) return <div className="sale-empty"><strong>Produk belum berhasil dimuat</strong><p>Gunakan Coba lagi untuk memuat katalog.</p></div>
   if (!products.length) return <div className="sale-empty sale-no-products"><Search /><strong>Produk tidak ditemukan</strong><p>Periksa nama, SKU, atau barcode produk.</p></div>
   const { start, end } = catalogWindow(offsets, Math.max(0, top - 14), viewport.height)
-  const hasMore = visibleCount < products.length
+  const hasMore = hasNext
   return <div className="sale-virtual-space" data-loaded-count={visibleCount} onPointerLeave={event => { if (event.pointerType === 'mouse') setHovered(null) }} style={{ height: offsets.at(-1)! + 17 + (hasMore ? 48 : 0) }}>
     {Array.from({ length: end - start }, (_, offset) => {
       const row = start + offset
@@ -114,7 +109,7 @@ function MeasuredRows({ products, categories, highlight, locked, active, onHighl
         })}
       </MeasuredRow>
     })}
-    {hasMore && <div className="product-page-end sale-page-end" style={{ top: offsets.at(-1)! + 14 }}>Gulir untuk memuat 50 produk berikutnya</div>}
+    {hasMore && <div className="product-page-end sale-page-end" style={{ top: offsets.at(-1)! + 14 }}>{loadingNext ? 'Memuat produk…' : loadError ? 'Gagal memuat halaman berikutnya. Klik Coba lagi.' : 'Gulir untuk memuat 50 produk berikutnya'}</div>}
   </div>
 }
 

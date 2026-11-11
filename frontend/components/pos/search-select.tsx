@@ -12,10 +12,18 @@ type Props = {
   required?: boolean
   disabled?: boolean
   className?: string
+  onSearchChange?: (query: string) => void
+  onOpenChange?: (open: boolean) => void
+  hasNext?: boolean
+  onLoadNext?: () => void
+  loading?: boolean
+  error?: string
+  onRetry?: () => void
+  selectedLabel?: string
 }
 
 /** Pilihan bertampilan seragam dengan pencarian dan navigasi keyboard. */
-export function SearchSelect({ children, value, onValueChange, 'aria-label': label, required, disabled, className = inputClass }: Props) {
+export function SearchSelect({ children, value, onValueChange, 'aria-label': label, required, disabled, className = inputClass, onSearchChange, onOpenChange, hasNext, onLoadNext, loading, error, onRetry, selectedLabel }: Props) {
   const id = useId()
   const root = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
@@ -29,8 +37,13 @@ export function SearchSelect({ children, value, onValueChange, 'aria-label': lab
     return { value: String(props.value ?? text), label: text, disabled: props.disabled }
   })
   const selected = options.find(option => option.value === String(value))
-  const filtered = options.filter(option => option.label.toLocaleLowerCase('id').includes(query.trim().toLocaleLowerCase('id')))
+  const matches = (text: string) => text.toLocaleLowerCase('id').includes(query.trim().toLocaleLowerCase('id'))
+  // Server results can match SKU/barcode absent from their label. Only filter
+  // static placeholder/"other" options locally in remote mode.
+  const filtered = options.filter(option => onSearchChange ? (!query.trim() || (option.value !== '' && option.value !== 'other') || matches(option.label)) : matches(option.label))
   const available = filtered.filter(option => !option.disabled)
+  useEffect(() => { onOpenChange?.(open) }, [open, onOpenChange])
+  useEffect(() => { if (open) onSearchChange?.(query) }, [query, open, onSearchChange])
 
   function close(restore = true) { setOpen(false); if (restore) trigger.current?.focus() }
   function choose(next: string, restore = true) {
@@ -62,15 +75,18 @@ export function SearchSelect({ children, value, onValueChange, 'aria-label': lab
     <button ref={trigger} type="button" className={`${className} search-select-trigger`} aria-label={label} aria-haspopup="listbox" aria-expanded={open} aria-controls={`${id}-list`} disabled={disabled} onClick={() => open ? close() : show()} onKeyDown={event => {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); show() }
       else if (event.key.length === 1 && event.key !== ' ' && !event.ctrlKey && !event.metaKey && !event.altKey) { event.preventDefault(); show(); setQuery(event.key); setHighlight(0) }
-    }}><span>{selected?.label || `Pilih ${label.toLowerCase()}`}</span><ChevronDown className="size-4 shrink-0" /></button>
+    }}><span>{selected?.label || selectedLabel || `Pilih ${label.toLowerCase()}`}</span><ChevronDown className="size-4 shrink-0" /></button>
     {required && <input aria-label={`${label} wajib dipilih`} className="search-select-validation" tabIndex={-1} value={value} required disabled={disabled} onChange={() => {}} onInvalid={event => { event.preventDefault(); show() }} />}
     {!required && <input type="hidden" value={value} readOnly />}
     {open && <div className="search-select-popup"><div className="search-select-search"><Search className="size-4" /><input ref={search} role="combobox" aria-label={`Cari ${label.toLowerCase()}`} aria-expanded="true" aria-autocomplete="list" aria-controls={`${id}-list`} aria-activedescendant={available[highlight] ? `${id}-option-${options.indexOf(available[highlight])}` : undefined} autoComplete="off" placeholder={`Cari ${label.toLowerCase()}…`} value={query} onChange={event => { setQuery(event.target.value); setHighlight(0) }} onKeyDown={event => {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); setHighlight(current => Math.max(0, Math.min(available.length - 1, current + (event.key === 'ArrowDown' ? 1 : -1)))) }
-      if (event.key === 'Enter') { event.preventDefault(); if (available[highlight]) choose(available[highlight].value) }
+      if (event.key === 'Enter') { event.preventDefault(); if (!loading && !error && available[highlight]) choose(available[highlight].value) }
     }} /></div><div id={`${id}-list`} role="listbox" aria-label={label} className="search-select-options">
-      {filtered.map(option => <button key={option.value} id={`${id}-option-${options.indexOf(option)}`} role="option" aria-selected={String(value) === option.value} type="button" tabIndex={-1} disabled={option.disabled} data-highlighted={available[highlight] === option} onMouseEnter={() => setHighlight(available.indexOf(option))} onMouseDown={event => event.preventDefault()} onClick={event => choose(option.value, event.detail === 0)}><span>{option.label}</span>{String(value) === option.value && <Check className="size-4" />}</button>)}
-      {!filtered.length && <p className="p-3 text-sm text-muted-foreground">Tidak ada pilihan yang cocok.</p>}
+      {filtered.map(option => <button key={option.value} id={`${id}-option-${options.indexOf(option)}`} role="option" aria-selected={String(value) === option.value} type="button" tabIndex={-1} disabled={option.disabled || Boolean(onSearchChange && loading)} data-highlighted={available[highlight] === option} onMouseEnter={() => setHighlight(available.indexOf(option))} onMouseDown={event => event.preventDefault()} onClick={event => choose(option.value, event.detail === 0)}><span>{option.label}</span>{String(value) === option.value && <Check className="size-4" />}</button>)}
+      {loading && <p role="status" className="p-3 text-sm">Memuat produk…</p>}
+      {error && <div role="alert" className="p-3 text-sm">{error} <button type="button" onClick={onRetry}>Coba lagi</button></div>}
+      {hasNext && !error && <button type="button" disabled={loading} onClick={onLoadNext}>Muat produk berikutnya</button>}
+      {!filtered.length && !loading && !error && <p className="p-3 text-sm text-muted-foreground">Tidak ada pilihan yang cocok.</p>}
     </div></div>}
   </div>
 }

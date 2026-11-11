@@ -22,7 +22,8 @@ async function setup(page: Page) {
     } else if (path === '/setup') data = { initialized: true, registration_open: false }
     else if (path === '/auth/login') data = { user, access_token: 'toko_' + 'a'.repeat(64), expires_at: new Date(Date.now() + 3600000).toISOString() }
     else if (path === '/me') data = user
-    else if (path === '/master-data') data = { version: String(calls.length + 1), products: [], categories: [], units: [], payments: [], sources }
+    else if (path === '/master-data') data = { version: String(calls.length + 1), categories: [], units: [], payments: [], sources }
+    else if (path === '/katalog/produk') data = { items: [], has_next: false, next_cursor: null, version: String(calls.length + 1) }
     else if (path === '/master-data/version') data = { version: String(calls.length + 1) }
     await route.fulfill({ headers: cors, json: { data } })
   })

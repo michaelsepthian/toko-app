@@ -14,7 +14,7 @@ func TestCatalogCacheConcurrentRequestsAndInvalidation(t *testing.T) {
 	var loads atomic.Int32
 	cache := newCatalogCache(func(context.Context) (masterData, error) {
 		loads.Add(1)
-		return masterData{Products: []model.Produk{}}, nil
+		return masterData{Categories: []model.Kategori{}}, nil
 	})
 	before := cache.version()
 	var wg sync.WaitGroup
@@ -23,7 +23,7 @@ func TestCatalogCacheConcurrentRequestsAndInvalidation(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			data, err := cache.get(context.Background())
-			if err != nil || data.Version != before || data.Products == nil {
+			if err != nil || data.Version != before || data.Categories == nil {
 				t.Errorf("invalid cached snapshot: %+v, %v", data, err)
 			}
 		}()

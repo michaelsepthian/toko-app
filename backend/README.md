@@ -83,6 +83,16 @@ profil pengguna dapat login memakai username dan password lamanya: bila konfigur
 Supabase Auth masih tersedia, backend memverifikasi password lama sekali, kemudian
 menyimpan hash lokal untuk login berikutnya. Tidak ada email yang perlu diisi di UI.
 
+## TTL cache produk
+
+Set `PRODUCT_CACHE_TTL_SECONDS` di `backend/.env` (proses lokal) atau `.env.docker`
+(Docker Compose). Default `3600` detik / **1 jam**; contoh `7200` untuk 2 jam.
+Nilai harus bilangan bulat 1–31536000 detik. Setelah mengubahnya, restart proses
+atau recreate container API. Backend meneruskan TTL lewat respons katalog agar
+cache frontend mengikuti pengaturan yang sama tanpa rebuild frontend.
+Mutasi produk, pergantian versi, dan tombol **Muat ulang data** tetap membatalkan
+cache sebelum TTL habis. Detail ada di [`docs/API.md`](docs/API.md#master-ringan-dan-katalog-produk).
+
 ## Struktur folder
 
 ```text

@@ -1,6 +1,6 @@
 'use client'
 import { SearchSelect } from './search-select'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import Decimal from 'decimal.js'
 import { Barcode, Minus, Plus, Search, ShoppingBasket, Trash2, WalletCards } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -11,8 +11,9 @@ import type { CashPurchaseNote, CartLine, Data, Product, Transaction, Transactio
 import { money, totals, validLines, validNumber } from '@/lib/pos'
 import { useCheckout } from '@/lib/use-checkout'
 import { ErrorBox, Field, inputClass, RupiahField } from './common'
-import { useProductPages } from '@/lib/use-product-pages'
-import { ProductPageEnd } from './product-page-end'
+import { useProductCatalog } from '@/lib/use-product-catalog'
+import { exactCatalogProduct, fetchProductPage, productQueryString } from '@/lib/product-catalog'
+import { CatalogStatus } from './catalog-status'
 import { ProductLoading } from './product-loading'
 import { MobileCartTabs, type MobileCartPanel } from './mobile-cart-tabs'
 
@@ -38,11 +39,15 @@ export function Checkout({ loading = false, user, data, purchase = false, active
   const preview = valid ? totals(cart, discount, selected, purchase) : totals([], '0', undefined, purchase)
   const amountPaid = selected?.jenis === 'CASH' ? paid || '0' : preview.total.toFixed(2)
   const sufficient = validNumber(amountPaid, 2, true) && new Decimal(amountPaid).gte(preview.total)
-  const filtered = useMemo(() => data.products.filter(p => p.aktif && `${p.nama} ${p.sku} ${p.barcode ?? ''}`.toLowerCase().includes(query.trim().toLowerCase())), [data.products, query])
   const catalogRef = useRef<HTMLDivElement>(null)
-  const { visibleProducts, endRef, hasMore } = useProductPages(filtered, active && !loading, catalogRef)
+  const catalog = useProductCatalog({ q: query }, active, catalogRef)
+  const visibleProducts = catalog.products
+  loading = loading || catalog.loading
   const stock = (id: number) => new Decimal(data.stocks.find(row => row.id === id)?.stok || 0)
   const locked = busy || Boolean(pending)
+  const [lookupPending, setLookupPending] = useState(false)
+  const lookupAllowed = useRef(false)
+  useLayoutEffect(() => { lookupAllowed.current = active && !locked && !modal })
 
   useEffect(() => { if (pending) setMobilePanel('cart') }, [pending])
 
@@ -78,17 +83,40 @@ export function Checkout({ loading = false, user, data, purchase = false, active
   }
   function update(id: number, patch: Partial<CartLine>) { if (!locked) setCart(current => current.map(item => item.product.id === id ? { ...item, ...patch } : item)) }
   async function scan(code: string) {
-    if (locked || !code.trim()) return
-    const exact = data.products.find(p => p.aktif && (p.barcode === code.trim() || p.sku === code.trim()))
-    if (exact) { add(exact); return }
-    setError(`Barcode/SKU ${code} tidak ditemukan. Pilih produk dari daftar atau daftarkan produknya.`)
+    if (locked || !code.trim() || searching.current) return
+    searching.current = true; setLookupPending(true)
+    try {
+      const exact = await exactCatalogProduct(code)
+      if (!lookupAllowed.current) return
+      if (exact) { add(exact); return }
+      setError(`Barcode/SKU ${code} tidak ditemukan. Pilih produk dari daftar atau daftarkan produknya.`)
+    } catch (err) { if (lookupAllowed.current) setError(`Gagal mencari produk: ${message(err)}`) }
+    finally { searching.current = false; setLookupPending(false) }
+  }
+  const searching = useRef(false)
+  async function chooseProduct() {
+    if (locked || searching.current) return
+    searching.current = true; setLookupPending(true)
+    try {
+      if (query.trim()) {
+        const exact = await exactCatalogProduct(query)
+        if (!lookupAllowed.current) return
+        if (exact) { add(exact); return }
+        if (/^\d{5,}$/.test(query.trim())) { setError(`Barcode/SKU ${query} tidak ditemukan.`); return }
+      }
+      const products = await fetchProductPage(productQueryString({ q: query }))
+      if (!lookupAllowed.current) return
+      if (products.items.length === 1 && !products.has_next) add(products.items[0])
+      else setError('Pilih produk dari hasil pencarian.')
+    } catch (err) { if (lookupAllowed.current) setError(`Gagal mencari produk: ${message(err)}`) }
+    finally { searching.current = false; setLookupPending(false) }
   }
   useEffect(() => {
     if (!active) return
     let buffer = ''; let last = 0
     const keyboard = (event: KeyboardEvent) => {
       if (event.key === 'F2') { event.preventDefault(); setMobilePanel('products'); requestAnimationFrame(() => search.current?.focus()); return }
-      if (event.key === 'F8' && valid && selected && !locked) { event.preventDefault(); setCompleted(null); setModal(true); return }
+      if (event.key === 'F8' && valid && selected && !locked && !searching.current) { event.preventDefault(); setCompleted(null); setModal(true); return }
       if (modal || locked || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return
       const target = event.target as HTMLElement
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target.isContentEditable) return
@@ -131,10 +159,15 @@ export function Checkout({ loading = false, user, data, purchase = false, active
           <div className="grid gap-3 sm:grid-cols-2"><RupiahField label="Diskon transaksi" value={discount} onChange={setDiscount} disabled={locked} /><div className="text-sm font-semibold"><span>Metode pembayaran</span><SearchSelect aria-label="Metode pembayaran" className={inputClass} disabled={locked} value={selected?.id ?? ''} onValueChange={value => setMethodID(value)}>{!methods.length && <option value="">Belum ada metode aktif</option>}{methods.map(p => <option key={p.id} value={p.id}>{p.nama}</option>)}</SearchSelect></div></div>
           <dl className="purchase-totals space-y-2 rounded-2xl bg-muted p-4 text-sm"><div className="flex justify-between"><dt>Subtotal</dt><dd>{money(preview.subtotal)}</dd></div><div className="flex justify-between"><dt>Biaya metode {selected?.penanggung_biaya === 'TOKO' && !purchase ? '(ditanggung toko)' : ''}</dt><dd>{money(preview.fee)}</dd></div><div className="flex justify-between text-2xl font-black"><dt>{purchase ? 'Total pembelian' : 'Total bayar'}</dt><dd>{money(preview.total)}</dd></div></dl>
           {!purchase && <label className="flex items-center gap-2 py-2"><input type="checkbox" checked={print} onChange={e => setPrint(e.target.checked)} />Cetak struk setelah pembayaran</label>}
-          <Button className="h-14 w-full text-lg" disabled={!valid || !selected || locked} onClick={() => { setCompleted(null); setModal(true) }}><WalletCards />{purchase ? 'Simpan Pembelian' : 'Bayar'} · F8</Button>
+          <Button className="h-14 w-full text-lg" disabled={!valid || !selected || locked || lookupPending} onClick={() => { setCompleted(null); setModal(true) }}><WalletCards />{lookupPending ? 'Mencari produk…' : purchase ? 'Simpan Pembelian' : 'Bayar'} · F8</Button>
         </div>
       </section>
-      <section id="purchase-panel-products" role="tabpanel" aria-labelledby="purchase-tab-products" className="purchase-catalog h-fit rounded-3xl border bg-card shadow-sm"><div className="purchase-search-area border-b p-4"><h2 className="text-xl font-bold">Pilih Produk</h2><form className="mt-3 flex items-center gap-3 rounded-2xl border-2 border-primary/30 px-4" onSubmit={e => { e.preventDefault(); const exact = data.products.find(p => p.aktif && (p.barcode === query || p.sku === query)); if (exact) add(exact); else if (filtered.length === 1 && !/^\d{5,}$/.test(query)) add(filtered[0]); else void scan(query) }}><Search /><input ref={search} aria-label={purchase ? 'Cari atau scan produk pembelian' : 'Cari atau scan produk penjualan'} className="h-14 min-w-0 flex-1 bg-transparent outline-none" value={query} disabled={locked} onChange={e => setQuery(e.target.value)} placeholder="Nama, SKU, atau scan barcode + Enter" /><Barcode /></form><p className="mt-2 text-xs text-muted-foreground">F2 fokus pencarian · Scanner USB mode keyboard + Enter</p></div><div ref={catalogRef} className="purchase-products grid max-h-[70vh] grid-cols-1 gap-3 overflow-y-auto p-4 sm:grid-cols-2" aria-busy={loading}>{loading && <ProductLoading />}{(active && !loading ? visibleProducts : []).map(product => <button key={product.id} disabled={locked} onClick={() => add(product)} className="flex min-h-36 flex-col rounded-2xl border bg-background p-4 text-left transition hover:border-primary hover:bg-primary/5 disabled:opacity-40"><span className="text-xs text-muted-foreground">{data.categories.find(c => c.id === product.kategori_id)?.nama} · {product.sku}</span><span className="mt-2 text-lg font-bold">{product.nama}</span><span className="mt-auto pt-3 text-xl font-bold">{money(product.harga_jual)}</span><span className="text-sm text-muted-foreground">Stok {stock(product.id).toString()}</span></button>)}{active && !loading && hasMore && <ProductPageEnd endRef={endRef} />}{!loading && !filtered.length && <p className="col-span-full py-10 text-center text-muted-foreground">Belum ada produk yang cocok. Pemilik dapat menambahnya dari menu Produk.</p>}</div></section>
+      <section id="purchase-panel-products" role="tabpanel" aria-labelledby="purchase-tab-products" className="purchase-catalog h-fit rounded-3xl border bg-card shadow-sm"><div className="purchase-search-area border-b p-4"><h2 className="text-xl font-bold">Pilih Produk</h2><form className="mt-3 flex items-center gap-3 rounded-2xl border-2 border-primary/30 px-4" onSubmit={e => { e.preventDefault(); void chooseProduct() }}><Search /><input ref={search} aria-label={purchase ? 'Cari atau scan produk pembelian' : 'Cari atau scan produk penjualan'} className="h-14 min-w-0 flex-1 bg-transparent outline-none" value={query} disabled={locked} onChange={e => setQuery(e.target.value)} placeholder="Nama, SKU, atau scan barcode + Enter" /><Barcode /></form><p className="mt-2 text-xs text-muted-foreground">F2 fokus pencarian · Scanner USB mode keyboard + Enter</p></div><div ref={catalogRef} className="purchase-products grid max-h-[70vh] grid-cols-1 gap-3 overflow-y-auto p-4 sm:grid-cols-2" aria-busy={loading}>
+        {loading && <ProductLoading />}
+        {(active && !loading ? visibleProducts : []).map(product => <button key={product.id} disabled={locked} onClick={() => add(product)} className="flex min-h-36 flex-col rounded-2xl border bg-background p-4 text-left transition hover:border-primary hover:bg-primary/5 disabled:opacity-40"><span className="text-xs text-muted-foreground">{data.categories.find(c => c.id === product.kategori_id)?.nama} · {product.sku}</span><span className="mt-2 text-lg font-bold">{product.nama}</span><span className="mt-auto pt-3 text-xl font-bold">{money(product.harga_jual)}</span><span className="text-sm text-muted-foreground">Stok {stock(product.id).toString()}</span></button>)}
+        <CatalogStatus catalog={catalog} />
+        {!loading && !catalog.error && !visibleProducts.length && <p className="col-span-full py-10 text-center text-muted-foreground">Belum ada produk yang cocok. Pemilik dapat menambahnya dari menu Produk.</p>}
+      </div></section>
     </div>
     <ResponsivePanel open={modal && active} title={completed ? 'Transaksi tersimpan' : purchase ? 'Konfirmasi Pembelian' : 'Konfirmasi Pembayaran'} dirty={false} busy={busy} onClose={() => setModal(false)}><section ref={dialogRef} tabIndex={-1} onKeyDown={e => { if (e.key === 'Enter' && e.target instanceof HTMLInputElement && !locked && !completed && (purchase || sufficient)) { e.preventDefault(); void save() } }} className="space-y-4"><ErrorBox>{error}</ErrorBox>{completed ? <><p className="break-all font-mono text-sm">{completed.nomor} · {completed.status}</p><p className="text-3xl font-black">{money(completed.total_tagihan ?? completed.total_pembayaran ?? '0')}</p>{!purchase && <p>Kembalian: <strong>{money(completed.kembalian ?? '0')}</strong></p>}<Button className="w-full" onClick={() => { setModal(false); setCompleted(null) }}>Selesai</Button></> : <><p className="text-4xl font-black">{money(preview.total)}</p><p>{selected?.nama}</p>{!purchase && selected?.jenis === 'CASH' && <RupiahField label="Uang diterima" value={paid} onChange={setPaid} disabled={locked} />}{!purchase && selected?.jenis !== 'CASH' && <p className="text-sm text-muted-foreground">Pastikan pembayaran pada terminal/QRIS sudah berhasil. Aplikasi hanya mencatat pembayaran.</p>}<Field label="Referensi pembayaran (opsional)" value={reference} onChange={setReference} disabled={locked} /><div className="flex gap-3"><Button variant="outline" disabled={busy} onClick={() => setModal(false)}>Tutup</Button><BusyButton className="flex-1" busy={busy} disabled={locked || (!purchase && !sufficient)} onClick={() => void save()}>Konfirmasi & Simpan</BusyButton></div></>}</section></ResponsivePanel>
   </div>

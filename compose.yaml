@@ -42,6 +42,7 @@ services:
     environment:
       HTTP_ADDR: 0.0.0.0:8080
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      PRODUCT_CACHE_TTL_SECONDS: ${PRODUCT_CACHE_TTL_SECONDS:-3600}
       DB_HOST: postgres
       DB_PORT: "5432"
       DB_NAME: ${POSTGRES_DB:-toko}

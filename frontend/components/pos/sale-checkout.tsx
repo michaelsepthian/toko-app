@@ -8,7 +8,9 @@ import { Button } from '@/components/ui/button'
 import { ResponsivePanel } from '@/components/ui/responsive-panel'
 import { useContentMotion } from '@/lib/ui-interactions'
 import { api, message } from '@/lib/api'
-import { exactProduct, groupedCash, isBarcodeQuery, isSearchCharacter } from '@/lib/keyboard'
+import { groupedCash, isBarcodeQuery, isSearchCharacter } from '@/lib/keyboard'
+import { useProductCatalog } from '@/lib/use-product-catalog'
+import { exactCatalogProduct, fetchProductPage, productQueryString } from '@/lib/product-catalog'
 import { jakartaDay } from '@/lib/history-date'
 import { incomeDateLabel, validIncomeDate } from '@/lib/income-date'
 import { money, totals, validLines, validNumber } from '@/lib/pos'
@@ -22,11 +24,11 @@ import { SaleLayout } from './sale-layout'
 import { SaleCatalog } from './sale-catalog'
 import { SearchSelect } from './search-select'
 import { MobileCartTabs, type MobileCartPanel } from './mobile-cart-tabs'
-import { parseProductOrder, productSortOptions, sortProducts, type ProductOrderSettings, type ProductPopularity, type ProductSort } from '@/lib/product-sort'
+import { parseProductOrder, productSortOptions, type ProductOrderSettings, type ProductSort } from '@/lib/product-sort'
 
-type Props = { loading?: boolean; user: User; data: Data; active: boolean; operationalDateHost: HTMLDivElement | null; onSaved: (sale: Transaction, purchase: boolean, print: boolean) => Promise<void>; onReprint: (sale: Transaction) => Promise<void>; onProductUpdated: (product: Product) => void }
+type Props = { loading?: boolean; user: User; data: Data; active: boolean; operationalDateHost: HTMLDivElement | null; onSaved: (sale: Transaction, purchase: boolean, print: boolean) => Promise<void>; onReprint: (sale: Transaction) => Promise<void> }
 
-export function SaleCheckout({ loading = false, user, data, active, operationalDateHost, onSaved, onReprint, onProductUpdated }: Props) {
+export function SaleCheckout({ loading = false, user, data, active, operationalDateHost, onSaved, onReprint }: Props) {
   const workspaceRef = useRef<HTMLDivElement>(null)
   useMobileSaleScroll(workspaceRef, active)
   const drafts = useSaleDrafts(user.id)
@@ -42,13 +44,10 @@ export function SaleCheckout({ loading = false, user, data, active, operationalD
   const [highlight, setHighlight] = useState(0)
   const [order, setOrder] = useState<ProductOrderSettings>({ sort: 'recommended', favoritesFirst: false })
   const [orderReady, setOrderReady] = useState(false)
-  const [popularity, setPopularity] = useState<ProductPopularity[]>([])
-  const [popularityRevision, setPopularityRevision] = useState(0)
-  const [popularityLoading, setPopularityLoading] = useState(false)
-  const [popularityError, setPopularityError] = useState(false)
+  const catalog = useProductCatalog({ q: query, sort: order.sort, favoritesFirst: order.favoritesFirst }, active && orderReady)
+  const filtered = catalog.products
   const orderKey = `toko:sale-product-order:${user.id}`
-  const favorites = useMemo(() => new Set(data.products.filter(product => product.is_favorit).map(product => product.id)), [data.products])
-  const frequency = useMemo(() => new Map(popularity.map(row => [row.produk_id, row.transaksi])), [popularity])
+  const favorites = useMemo(() => new Set(filtered.filter(product => product.is_favorit).map(product => product.id)), [filtered])
   useEffect(() => {
     try { setOrder(parseProductOrder(localStorage.getItem(orderKey))) } catch { /* Storage is optional. */ }
     setOrderReady(true)
@@ -57,24 +56,15 @@ export function SaleCheckout({ loading = false, user, data, active, operationalD
     if (!orderReady) return
     try { localStorage.setItem(orderKey, JSON.stringify(order)) } catch { /* Keep sorting available without storage. */ }
   }, [order, orderKey, orderReady])
-  useEffect(() => {
-    let current = true
-    setPopularityLoading(true); setPopularityError(false)
-    void api<ProductPopularity[]>('/produk/popularitas').then(rows => { if (current) setPopularity(rows) })
-      .catch(() => { if (current) setPopularityError(true) })
-      .finally(() => { if (current) setPopularityLoading(false) })
-    return () => { current = false }
-  }, [popularityRevision])
   const [favoriteBusyID, setFavoriteBusyID] = useState<number | null>(null)
   const favoriteLock = useRef(false)
   async function toggleFavorite(id: number) {
     if (user.peran !== 'PEMILIK' || favoriteLock.current || locked) return
-    const product = data.products.find(product => product.id === id)
+    const product = filtered.find(product => product.id === id)
     if (!product) return
     favoriteLock.current = true; setFavoriteBusyID(id); setError('')
     try {
-      const updated = await api<Product>(`/produk/${id}/favorit`, 'PUT', { is_favorit: !product.is_favorit })
-      onProductUpdated(updated)
+      await api<Product>(`/produk/${id}/favorit`, 'PUT', { is_favorit: !product.is_favorit })
       focusSearch()
     } catch (err) { setError(`Gagal menyimpan favorit: ${message(err)}`) }
     finally { favoriteLock.current = false; setFavoriteBusyID(null) }
@@ -99,6 +89,8 @@ export function SaleCheckout({ loading = false, user, data, active, operationalD
   const { submit, pending } = checkout
   const busy = checkout.anyBusy
   const locked = !drafts.ready || !checkout.ready || busy || Boolean(pending)
+  const lookupContext = useRef({ draft: drafts.draft.id, allowed: false })
+  useLayoutEffect(() => { lookupContext.current = { draft: drafts.draft.id, allowed: active && !locked && !modal } })
   const switchingLocked = locked || modal
   const incomeDate = pending?.tanggal_pendapatan ?? (drafts.draft.incomeDate || jakartaDay())
   const incomeDateValid = validIncomeDate(incomeDate)
@@ -109,12 +101,6 @@ export function SaleCheckout({ loading = false, user, data, active, operationalD
   const amountPaid = method?.jenis === 'CASH' ? paid || '0' : preview.total.toFixed(2)
   const sufficient = validNumber(amountPaid, 2, true) && new Decimal(amountPaid).gte(preview.total)
   const categories = useMemo(() => new Map(data.categories.map(row => [row.id, row.nama])), [data.categories])
-  const sortedProducts = useMemo(() => sortProducts(data.products.filter(product => product.aktif), order.sort, frequency, order.favoritesFirst), [data.products, order.sort, order.favoritesFirst, frequency])
-  const searchIndex = useMemo(() => sortedProducts.map(product => ({ product, text: `${product.nama} ${product.sku} ${product.barcode ?? ''} ${categories.get(product.kategori_id) ?? ''}`.toLowerCase() })), [sortedProducts, categories])
-  const filtered = useMemo(() => {
-    const words = query.trim().toLowerCase().split(/\s+/)
-    return searchIndex.filter(row => words.every(word => row.text.includes(word))).map(row => row.product)
-  }, [searchIndex, query])
   useLayoutEffect(() => {
     if (addition && cartBodyRef.current) cartBodyRef.current.scrollTop = cartBodyRef.current.scrollHeight
   }, [addition])
@@ -199,32 +185,42 @@ export function SaleCheckout({ loading = false, user, data, active, operationalD
     else update(id, { quantity: quantity.toString() })
   }
   function clearCart() {
-    if (locked || modal) return
+    if (locked || modal || searchBusy.current) return
     if (cartRef.current.length && !window.confirm(`Kosongkan daftar belanja Transaksi ${drafts.active + 1}?`)) return
     commitCart([]); setPaid(''); setReference(''); setQuery(''); setHighlight(0); setSelectedCart(null); setMethodID(null); setError(''); focusSearch()
   }
   function openPayment() {
-    if (!valid || !method || locked) return
+    if (!valid || !method || locked || searchBusy.current) return
     if (!incomeDateValid) { setError('Pilih tanggal pendapatan yang valid.'); return }
     setError(''); setPaymentError(''); setChangePreview(null); setPaymentStage('confirm'); setCompleted(null); setModal(true)
   }
   function finish() { if (savingRef.current || busy || paymentStage === 'saving' || (pending && !completed)) return; setPaymentStage('confirm'); setPaymentError(''); setChangePreview(null); setModal(false); setCompleted(null); setError(''); focusSearch() }
 
+  const searchBusy = useRef(false)
+  const [lookupPending, setLookupPending] = useState(false)
   async function chooseSearchResult() {
-    if (locked) return
-    const exact = exactProduct(data.products, query)
-    if (exact) { add(exact); return }
-    // Barcode yang tidak cocok tidak pernah memilih barang lain secara fuzzy.
-    if (query.trim() && isBarcodeQuery(query)) {
-      setError(`Barcode ${query.trim()} tidak ditemukan.`)
-      return
-    }
-    const candidate = filtered[highlight]
-    if (candidate) add(candidate)
-    else setError('Produk tidak ditemukan. Periksa nama, SKU, atau barcode.')
+    if (locked || searchBusy.current) return
+    searchBusy.current = true; setLookupPending(true)
+    const draft = drafts.draft.id
+    const allowed = () => lookupContext.current.allowed && lookupContext.current.draft === draft
+    try {
+      if (query.trim()) {
+        const exact = await exactCatalogProduct(query)
+        if (!allowed()) return
+        if (exact) { add(exact); return }
+        // An unknown barcode must never select a fuzzy match, even off-page.
+        if (isBarcodeQuery(query)) { setError(`Barcode ${query.trim()} tidak ditemukan.`); return }
+      }
+      const products = filtered.length ? filtered : (await fetchProductPage(productQueryString({ q: query, sort: order.sort, favoritesFirst: order.favoritesFirst }))).items
+      if (!allowed()) return
+      const candidate = products[highlight] ?? products[0]
+      if (candidate) add(candidate)
+      else setError('Produk tidak ditemukan. Periksa nama, SKU, atau barcode.')
+    } catch (err) { if (allowed()) setError(`Gagal mencari produk: ${message(err)}`) }
+    finally { searchBusy.current = false; setLookupPending(false) }
   }
 
-  useEffect(() => { setHighlight(0) }, [query, order.sort, order.favoritesFirst, favorites, frequency])
+  useEffect(() => { setHighlight(0) }, [query, order.sort, order.favoritesFirst])
   useEffect(() => { if (active && !modal && !pending && drafts.ready) focusSearch() }, [active, drafts.ready])
   useEffect(() => {
     if (!active || !drafts.ready || !pending || busy || completed || paymentStage !== 'confirm') return
@@ -262,7 +258,7 @@ export function SaleCheckout({ loading = false, user, data, active, operationalD
         else if (!modal) openPayment()
         return
       }
-      if (['F4', 'F5', 'F6'].includes(event.key) && !busy && !pending && !completed && paymentStage === 'confirm') {
+      if (['F4', 'F5', 'F6'].includes(event.key) && !busy && !pending && !completed && !searchBusy.current && paymentStage === 'confirm') {
         event.preventDefault()
         const kind = { F4: 'CASH', F5: 'QRIS', F6: 'DEBIT' }[event.key as 'F4' | 'F5' | 'F6']
         const chosen = methods.find(method => method.jenis === kind)
@@ -332,7 +328,7 @@ export function SaleCheckout({ loading = false, user, data, active, operationalD
         cartRef.current = next.drafts[next.active].cart
         setQuery(''); setSelectedCart(null); setHighlight(0)
         setAddition(value => value + 1)
-        setPopularityRevision(value => value + 1)
+        catalog.refresh()
       }
       setCompleted(result); setPaymentStage('confirm')
     } catch (err) {
@@ -394,7 +390,7 @@ export function SaleCheckout({ loading = false, user, data, active, operationalD
             const name = payment.jenis === 'CASH' && /^(cash|tunai)$/i.test(payment.nama) ? 'Tunai' : payment.nama
             return <Button type="button" key={payment.id} aria-pressed={method?.id === payment.id} className="sale-method" variant={method?.id === payment.id ? 'default' : 'outline'} onClick={() => setMethodID(payment.id)}><Icon />{name}</Button>
           })}</div>{!methods.length && <p className="text-sm text-destructive">Belum ada metode pembayaran aktif.</p>}</fieldset>
-          <Button className="sale-pay" disabled={!valid || !method || locked} onClick={openPayment}><WalletCards />Bayar<kbd>F8</kbd></Button>
+          <Button className="sale-pay" disabled={!valid || !method || locked || lookupPending} onClick={openPayment}><WalletCards />{lookupPending ? 'Mencari produk…' : 'Bayar'}<kbd>F8</kbd></Button>
         </div>
       </section>
 
@@ -404,18 +400,19 @@ export function SaleCheckout({ loading = false, user, data, active, operationalD
           if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
             event.preventDefault()
             const next = Math.max(0, Math.min(filtered.length - 1, highlight + (event.key === 'ArrowDown' ? 1 : -1)))
+            if (event.key === 'ArrowDown' && next >= filtered.length - 5 && catalog.hasNext && !catalog.loadingNext && !catalog.error) catalog.loadNext()
             setHighlight(next)
           }
           if (event.key === 'Escape') { event.preventDefault(); setQuery(''); setError('') }
         }} /><Barcode /></form>
         <details className="sale-product-options"><summary>Pengaturan produk</summary>
-        <div className="sale-sort-toolbar"><span>Urutkan produk</span><SearchSelect aria-label="Urutan produk penjualan" value={order.sort} disabled={locked} className="sale-sort-trigger" onValueChange={value => setOrder(previous => ({ ...previous, sort: value as ProductSort }))}>{productSortOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</SearchSelect><label className="sale-favorites-filter"><input type="checkbox" checked={order.favoritesFirst} disabled={locked} onChange={event => setOrder(previous => ({ ...previous, favoritesFirst: event.target.checked }))} />Utamakan favorit</label><button type="button" className="sale-sort-refresh" disabled={popularityLoading || locked} onClick={() => setPopularityRevision(value => value + 1)}>{popularityLoading ? 'Memuat…' : 'Perbarui terlaris'}</button></div>
-        {popularityError && <p className="sale-sort-note" role="status">Data terlaris belum berhasil dimuat. Favorit tetap bisa diatur. Klik Perbarui terlaris untuk mencoba lagi.</p>}
-        <p className="sale-result-count">{filtered.length.toLocaleString('id-ID')} produk</p>
+        <div className="sale-sort-toolbar"><span>Urutkan produk</span><SearchSelect aria-label="Urutan produk penjualan" value={order.sort} disabled={locked} className="sale-sort-trigger" onValueChange={value => setOrder(previous => ({ ...previous, sort: value as ProductSort }))}>{productSortOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</SearchSelect><label className="sale-favorites-filter"><input type="checkbox" checked={order.favoritesFirst} disabled={locked} onChange={event => setOrder(previous => ({ ...previous, favoritesFirst: event.target.checked }))} />Utamakan favorit</label><button type="button" className="sale-sort-refresh" disabled={catalog.loading || locked} onClick={catalog.refresh}>{catalog.loading ? 'Memuat…' : 'Perbarui terlaris'}</button></div>
+        <p className="sale-result-count">{filtered.length.toLocaleString('id-ID')} produk dimuat{catalog.hasNext ? ' · gulir untuk lainnya' : ''}</p>
         </details>
+        {catalog.error && <div role="alert" className="sale-sort-note">Gagal memuat produk: {catalog.error} <button type="button" onClick={catalog.retry}>Coba lagi</button></div>}
         {favoriteBusyID !== null && <span role="status" className="sr-only">Menyimpan favorit produk…</span>}
         <div className="sale-catalog-tools"><details className="sale-shortcuts"><summary>Shortcut keyboard</summary><p className="sale-key-hint"><kbd>↑</kbd><kbd>↓</kbd> pilih · <kbd>Enter</kbd> tambah · <kbd>F3</kbd> jumlah · <kbd>F4</kbd> tunai · <kbd>F5</kbd> QRIS · <kbd>F6</kbd> debit · <kbd>F9</kbd> kosongkan · <kbd>F10</kbd> buka laci · <kbd>Alt 1–9</kbd> pindah transaksi</p></details></div>
-      </div><SaleCatalog loading={loading} products={filtered} categories={categories} highlight={highlight} locked={locked} active={active} onHighlight={setHighlight} onAdd={add} favorites={favorites} onToggleFavorite={toggleFavorite} favoriteEditable={user.peran === 'PEMILIK'} favoriteBusyID={favoriteBusyID} /></section>
+      </div><SaleCatalog loading={loading || catalog.loading} products={filtered} categories={categories} highlight={highlight} locked={locked} active={active} onHighlight={setHighlight} onAdd={add} favorites={favorites} onToggleFavorite={toggleFavorite} favoriteEditable={user.peran === 'PEMILIK'} favoriteBusyID={favoriteBusyID} hasNext={catalog.hasNext} loadingNext={catalog.loadingNext} onLoadNext={catalog.loadNext} pageKey={`${query}:${order.sort}:${order.favoritesFirst}`} loadError={Boolean(catalog.error)} /></section>
     </SaleLayout>
 
     <ResponsivePanel open={modal && active} title="Pembayaran" dirty={false} busy={busy || paymentStage === 'saving' || Boolean(pending && !completed)} onClose={finish}><section ref={dialogRef} className="sale-payment-content" tabIndex={-1} aria-busy={paymentStage === 'saving'}>

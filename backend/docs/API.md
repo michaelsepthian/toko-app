@@ -22,6 +22,8 @@ tidak valid, 403 tidak berhak, 404 data tidak ditemukan, 409 konflik data/stok.
 | POST | `/auth/login` | Publik, username/password |
 | POST | `/auth/logout` | Pengguna aktif |
 | GET | `/me` | Pengguna aktif |
+| GET | `/master-data`, `/master-data/version` | Pengguna aktif; sumber pembelian hanya pemilik |
+| GET | `/katalog/produk` | Pengguna aktif; katalog produk berpaginasi cursor |
 | GET | `/kategori`, `/satuan`, `/produk`, `/sumber-pembelian`, `/metode-pembayaran` | Pengguna aktif |
 | GET | Semua master di atas + `/{id}` | Pengguna aktif |
 | GET | `/produk/popularitas` | Pengguna aktif |
@@ -36,7 +38,7 @@ tidak valid, 403 tidak berhak, 404 data tidak ditemukan, 409 konflik data/stok.
 | GET | `/stok`, `/produk/{id}/mutasi` | Pengguna aktif |
 | POST | `/produk/{id}/mutasi` | Pemilik |
 
-Endpoint list memakai `?limit=20&offset=0` (maksimum limit 100), tanpa total count.
+Endpoint list CRUD memakai `?limit=20&offset=0` (maksimum limit 100), tanpa total count.
 Master mendukung `?q=beras` untuk pencarian nama.
 Produk juga mencari SKU/barcode melalui `q`, atau mencocokkan barcode persis
 melalui `/produk?barcode=0012345678901`. Barcode diperlakukan sebagai teks.
@@ -49,6 +51,62 @@ sesuai atau yang `aktif=false`. Database lama perlu menjalankan
 `database/migrations/metode_pembayaran_visibilitas.sql` sebelum memakai backend terbaru.
 
 ## Menyiapkan produk
+
+### Master ringan dan katalog produk
+
+`GET /master-data` mengembalikan `version`, `categories`, `units`, `payments`,
+dan `sources` (kosong untuk kasir). **Tidak memuat field atau membaca tabel produk.**
+Frontend dan backend harus diperbarui bersamaan karena kontrak master berubah.
+
+Ambil produk secara terpisah melalui:
+
+```text
+GET /katalog/produk?limit=50&sort=name-asc&aktif=true
+GET /katalog/produk?q=beras&limit=50
+GET /katalog/produk?exact=0012345678901&limit=2
+```
+
+```json
+{"data":{"items":[],"has_next":false,"next_cursor":null,"version":"versi-katalog","cache_ttl_seconds":3600}}
+```
+
+- Default `limit=50`, maksimum 100. Backend membaca `limit + 1`, **tanpa total/count
+  produk**. Jika `has_next=true`, teruskan `next_cursor` pada parameter `cursor`;
+  pertahankan semua parameter pencarian/filter/sort sebelumnya.
+- Cursor memakai keyset, bukan OFFSET. Cursor tidak boleh dipakai untuk query lain.
+  Versi katalog berubah setelah mutasi master; cursor lama menghasilkan 409 dan
+  frontend memulai ulang halaman pertama. Perubahan transaksi pada urutan terlaris
+  dapat mengubah posisi antar-request; bukan snapshot transaksi lintas halaman.
+- `q` mencari setiap kata pada nama, SKU, barcode, atau nama kategori. `%`/`_`
+  diperlakukan sebagai karakter literal. `exact` hanya barcode/SKU persis (SKU
+  tidak peka kapital; barcode teks dengan nol di depan dipertahankan), tanpa fallback fuzzy.
+- `aktif=true` (default), `false`, atau `all`.
+- `sort`: `recommended` (frekuensi transaksi SELESAI), `name-asc` (default),
+  `name-desc`, `newest`, `price-asc`, `price-desc`. Nama diurutkan tanpa membedakan
+  kapital, dengan ID sebagai penentu akhir agar pagination deterministik.
+- `favorites_first=true` mengutamakan favorit sebelum sort yang dipilih.
+- Cache backend hanya halaman pertama tanpa `q`/`exact`, maksimal 32 entri per
+  proses, dipisahkan berdasarkan versi dan seluruh opsi query. TTL diatur lewat
+  `PRODUCT_CACHE_TTL_SECONDS` pada environment backend, default **3600 detik (1 jam)**.
+  Pencarian bebas dan halaman lanjutan langsung ke DB. `refresh=true` melewati
+  cache halaman awal. Tidak membutuhkan Redis.
+- Frontend menyimpan maksimal 100 halaman dengan TTL yang sama, dikirim backend
+  melalui `cache_ttl_seconds` pada setiap respons katalog (fallback 1 jam untuk
+  respons lama). Cache terpisah per sesi dan query/cursor, dihapus saat mutasi master, pergantian versi, muat ulang,
+  atau logout. Request serentak untuk halaman yang sama digabungkan.
+- Contoh: `PRODUCT_CACHE_TTL_SECONDS=7200` untuk 2 jam. Nilai harus bilangan bulat
+  1–31536000 detik. Set di `backend/.env` untuk proses lokal atau `.env.docker`
+  untuk Compose, lalu restart/recreate API. Tidak perlu rebuild frontend saat
+  mengganti TTL; browser mengambil kebijakan baru setelah versi API berubah.
+  Cache urutan terlaris juga mengikuti TTL ini; gunakan **Perbarui terlaris** atau
+  **Muat ulang data** bila ingin memperbarui sebelum TTL habis.
+- `GET /master-data?refresh=true` juga memperbarui versi untuk perubahan langsung
+  melalui SQL Editor. Beberapa replika API memiliki cache/version lokal sendiri;
+  gunakan satu replika atau sticky routing sampai tersedia invalidasi terdistribusi.
+
+Jalankan migrasi `database/migrations/20261110_katalog_produk.sql` (terdaftar dalam
+manifest deployment) untuk indeks pagination dan pencarian `pg_trgm`. Role migrasi
+harus boleh memasang ekstensi tersebut. Endpoint CRUD `/produk` tetap tersedia.
 
 `POST /kategori`: `{"nama":"Sembako","deskripsi":"Kebutuhan harian"}`
 
@@ -260,6 +318,9 @@ per akun di browser; ID favorit lama dari browser tidak digunakan lagi.
 Pengguna lain menerima perubahan melalui pemeriksaan versi master (maksimal
 sekitar 30 detik selama halaman aktif). Flag juga tersedia pada create/update
 produk biasa. Frekuensi transaksi tetap berasal dari database toko.
+Invalidasi versi ini tidak menunggu TTL `PRODUCT_CACHE_TTL_SECONDS`. Pada tab yang
+mengubah favorit, sinkronisasi master dan versi digabungkan sehingga satu klik
+hanya memicu satu fetch ulang halaman katalog aktif, bukan dua fetch identik.
 
 Untuk database yang sudah ada, jalankan `database/migrations/produk_favorit.sql` sebelum
 menjalankan backend baru. Instalasi baru memakai `database/schema.sql` yang

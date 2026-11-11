@@ -16,8 +16,9 @@ import { ErrorBox } from './pos/common'
 import { ShoppingPlan } from './pos/shopping-plan'
 import { clearActionHash, useContentMotion, useDismissInteractions } from '@/lib/ui-interactions'
 import { useNotice } from '@/lib/use-notice'
+import { invalidateProducts } from '@/lib/product-cache'
 
-const initialData: Data = { products: [], categories: [], units: [], payments: [], sources: [], stocks: [] }
+const initialData: Data = { categories: [], units: [], payments: [], sources: [], stocks: [] }
 type View = 'cashier' | 'purchases' | 'products' | 'history' | 'masters' | 'devices' | 'shopping'
 export function PosApp() { return <AuthGate>{user => <Workspace key={user.id} user={user} />}</AuthGate> }
 
@@ -30,6 +31,8 @@ function Workspace({ user }: { user: User }) {
   const headerRef = useRef<HTMLDivElement>(null)
   const drawerBusy = useRef(false)
   const moreRef = useRef<HTMLDetailsElement>(null)
+  const masterVersion = useRef<string | null>(null)
+  const masterChangePending = useRef(false)
   const contentRef = useRef<HTMLDivElement>(null)
   useContentMotion(contentRef, view)
   useDismissInteractions()
@@ -74,8 +77,19 @@ function Workspace({ user }: { user: User }) {
     if (!checkVersion) { setLoading(true); setError('') }
     try {
       const masters = await masterData(checkVersion, force)
-      setData(previous => previous.products === masters.products && previous.categories === masters.categories && previous.units === masters.units && previous.payments === masters.payments && previous.sources === masters.sources ? previous : { ...previous, ...masters })
-    } catch (err) { setError(`Gagal memuat data: ${message(err)}`) } finally { setLoading(false) }
+      const catalogChanged = force || masterChangePending.current || (masterVersion.current !== null && masterVersion.current !== masters.version)
+      // Concurrent local refresh/version checks share this acknowledgement, so
+      // only the first completion invalidates the product pages.
+      masterChangePending.current = false
+      masterVersion.current = masters.version
+      if (catalogChanged) invalidateProducts()
+      setData(previous => previous.categories === masters.categories && previous.units === masters.units && previous.payments === masters.payments && previous.sources === masters.sources ? previous : { ...previous, ...masters })
+    } catch (err) {
+      // A successful mutation must refresh products even if the small master
+      // snapshot is temporarily unavailable.
+      if (masterChangePending.current) { masterChangePending.current = false; invalidateProducts() }
+      setError(`Gagal memuat data: ${message(err)}`)
+    } finally { setLoading(false) }
   }, [])
   const refreshStocks = useCallback(async () => {
     if (!owner) return
@@ -85,10 +99,10 @@ function Workspace({ user }: { user: User }) {
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => { if (view === 'purchases') void refreshStocks() }, [view, refreshStocks])
   useEffect(() => {
-    const update = () => { void refresh() }
+    const update = () => { masterChangePending.current = true; void refresh() }
     const check = () => { if (document.visibilityState === 'visible') void refresh(true) }
     const storage = (event: StorageEvent) => { if (event.key === 'toko:master-updated') check() }
-    // Hanya memeriksa nomor versi; kelima tabel tidak diunduh lagi jika tidak berubah.
+    // Hanya memeriksa nomor versi; master tidak diunduh lagi jika tidak berubah.
     const interval = window.setInterval(check, 30000)
     window.addEventListener('focus', check)
     window.addEventListener('storage', storage)
@@ -152,7 +166,7 @@ function Workspace({ user }: { user: User }) {
     </div>
     {notice && <div role="status" className="pos-toast"><span>{notice}</span><button aria-label="Tutup pemberitahuan" onClick={() => setNotice('')}><X className="size-4" /></button></div>}
     <div ref={contentRef} className="pos-view-content">
-    <SaleCheckout loading={loading} user={user} data={data} active={view === 'cashier'} operationalDateHost={operationalDateHost} onSaved={saved} onReprint={print} onProductUpdated={product => setData(previous => ({ ...previous, products: previous.products.map(row => row.id === product.id ? product : row) }))} />
+    <SaleCheckout loading={loading} user={user} data={data} active={view === 'cashier'} operationalDateHost={operationalDateHost} onSaved={saved} onReprint={print} />
     {owner && <Checkout loading={loading} user={user} data={data} purchase active={view === 'purchases'} onSaved={saved} />}
     {view === 'purchases' && owner && <Inventory data={data} refresh={refreshStocks} />}
     {view === 'products' && <Products loading={loading} data={data} refresh={refresh} owner={owner} />}

@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { jakartaDay } from '../../lib/history-date'
 import { shiftShoppingMonth } from '../../lib/shopping-plan'
 import type { ShoppingItem } from '../../lib/types'
+import { catalogFixture } from './catalog-fixture'
 
 async function setup(page: Page, role = 'PEMILIK', failSaveOnce = false) {
   const date = jakartaDay()
@@ -24,7 +25,9 @@ async function setup(page: Page, role = 'PEMILIK', failSaveOnce = false) {
     if (path === '/setup') result = { initialized: true, registration_open: false }
     else if (path === '/auth/login') result = { user, access_token: token, expires_at: new Date(Date.now() + 3600000).toISOString() }
     else if (path === '/me') result = user
-    else if (path === '/master-data') result = { version: '1', products, categories: [{ id: 1, nama: 'Sembako' }], units: [{ id: 1, nama: 'kg' }], payments: [], sources: [] }
+    else if (path === '/master-data') result = { version: '1', categories: [{ id: 1, nama: 'Sembako' }], units: [{ id: 1, nama: 'kg' }], payments: [], sources: [] }
+    else if (path === '/katalog/produk') result = catalogFixture(products, url.searchParams)
+    else if (/^\/produk\/\d+$/.test(path)) result = products.find(product => product.id === Number(path.split('/')[2]))
     else if (path === '/master-data/version') result = { version: '1' }
     else if (request.method() !== 'GET') {
       const body = request.postDataJSON() ?? {}; calls.push({ path, body })

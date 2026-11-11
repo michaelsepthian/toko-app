@@ -21,7 +21,8 @@ async function incomeSummary(page: Page) {
     if (path === '/setup') data = { initialized: true, registration_open: false }
     if (path === '/auth/login') data = { user, access_token: 'toko_' + 'a'.repeat(64), expires_at: new Date(Date.now() + 3600000).toISOString() }
     if (path === '/me') data = user
-    if (path === '/master-data') data = { version: '1', products: [], categories: [], units: [], payments: [], sources: [] }
+    if (path === '/master-data') data = { version: '1', categories: [], units: [], payments: [], sources: [] }
+    if (path === '/katalog/produk') data = { items: [], has_next: false, next_cursor: null, version: '1' }
     if (path === '/master-data/version') data = { version: '1' }
     if (path === '/ringkasan-harian/preview') data = snapshot(canceled)
     if (path === '/ringkasan-harian') data = request.method() === 'POST' ? { ...saved, ...request.postDataJSON() } : [saved]

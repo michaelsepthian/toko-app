@@ -8,12 +8,16 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
 
+const DefaultProductCacheTTL = time.Hour
+
 type Config struct {
 	DatabaseURL, SupabaseURL, SupabaseKey, HTTPAddr, CORSOrigin string
+	ProductCacheTTL                                             time.Duration
 }
 
 func Load() (Config, error) {
@@ -32,6 +36,14 @@ func Load() (Config, error) {
 	c := Config{
 		DatabaseURL: get("DATABASE_URL"), SupabaseURL: strings.TrimRight(get("SUPABASE_URL"), "/"),
 		SupabaseKey: get("SUPABASE_ANON_KEY"), HTTPAddr: get("HTTP_ADDR"), CORSOrigin: get("CORS_ORIGIN"),
+		ProductCacheTTL: DefaultProductCacheTTL,
+	}
+	if value := get("PRODUCT_CACHE_TTL_SECONDS"); value != "" {
+		seconds, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || seconds < 1 || seconds > 31536000 {
+			return Config{}, fmt.Errorf("PRODUCT_CACHE_TTL_SECONDS harus bilangan bulat 1–31536000")
+		}
+		c.ProductCacheTTL = time.Duration(seconds) * time.Second
 	}
 	// Compose memakai field terpisah agar password tidak perlu di-URL-encode manual.
 	if c.DatabaseURL == "" && get("DB_HOST") != "" {

@@ -1,5 +1,6 @@
 import type { LoginResult, MasterData } from './types'
 import { VersionedCache } from './versioned-cache'
+import { invalidateProducts } from './product-cache'
 
 const baseURL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? '').replace(/\/$/, '')
 const sessionKey = 'toko:login'
@@ -20,6 +21,7 @@ export function saveSession(session: LoginResult) {
 }
 function clearSession(expired = false) {
   masterCaches.clear()
+  invalidateProducts()
   sessionStorage.removeItem(sessionKey)
   window.dispatchEvent(new CustomEvent('toko-auth-logout', { detail: { expired } }))
 }
@@ -44,6 +46,7 @@ export function api<T>(path: string, method = 'GET', body?: unknown): Promise<T>
   return request<T>(path, method, body, session.access_token).then(result => {
     if (['POST', 'PUT', 'DELETE'].includes(method) && (/^\/(produk|kategori|satuan|metode-pembayaran|sumber-pembelian)(\/\d+)?$/.test(path) || /^\/produk\/\d+\/favorit$/.test(path))) {
       for (const cache of masterCaches.values()) cache.clear()
+      // Workspace invalidates products once after synchronizing the master version.
       window.dispatchEvent(new Event('toko-master-updated'))
       try { localStorage.setItem('toko:master-updated', String(Date.now())) } catch { /* Sinkronisasi tab opsional. */ }
     }

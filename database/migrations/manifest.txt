@@ -3,3 +3,4 @@
 20261101_tanggal_pendapatan.sql
 20261102_audit_pengguna.sql
 20261110_rencana_belanja.sql
+20261110_katalog_produk.sql

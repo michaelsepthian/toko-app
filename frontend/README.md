@@ -79,6 +79,31 @@ tetap memakai `.env.local` seperti sebelumnya.
 
 ## Menu dan penggunaan
 
+### Katalog produk bertahap
+
+Master kategori/satuan/pembayaran/sumber pembelian dan halaman pertama katalog
+dimuat terpisah. `/master-data` tidak lagi membawa seluruh produk. Katalog,
+daftar Produk, dan Pembelian meminta 50 produk melalui `/katalog/produk`, lalu
+mengambil halaman berikutnya saat digulir menggunakan `has_next`/`next_cursor`,
+tanpa menghitung total produk. Angka pada layar adalah jumlah yang sudah dimuat.
+
+Pencarian nama/SKU/kategori memakai API dengan debounce 300 ms. Barcode/SKU saat
+Enter dicocokkan persis tanpa menunggu debounce, termasuk produk yang belum dimuat.
+Dropdown produk pada stok dan Rencana Belanja juga mencari melalui API dan
+menyediakan tombol **Muat produk berikutnya**. Keranjang tidak ikut direset saat
+kata pencarian atau halaman berubah.
+
+Cache frontend dibatasi 100 halaman, dipisahkan per sesi dan dihapus saat
+logout, mutasi master, perubahan versi, atau muat ulang. Backend hanya menyimpan
+halaman awal umum (maksimal 32 entri); pencarian bebas langsung DB.
+TTL kedua cache diatur melalui **satu env backend** `PRODUCT_CACHE_TTL_SECONDS`,
+default `3600` (1 jam). Respons katalog mengirim `cache_ttl_seconds` ke frontend.
+Untuk 2 jam, set `PRODUCT_CACHE_TTL_SECONDS=7200` di `backend/.env` atau
+`.env.docker`, lalu restart/recreate API; tidak perlu rebuild frontend.
+Tombol **Muat ulang data** dan **Perbarui terlaris** tetap melewati cache.
+Jalankan migrasi `../database/migrations/20261110_katalog_produk.sql`, lalu perbarui
+backend dan frontend bersamaan. Detail kontrak ada di `../backend/docs/API.md`.
+
 ### Rencana belanja
 
 Menu **Rencana Belanja** tersedia untuk pemilik dan kasir (di mobile disingkat
@@ -275,9 +300,21 @@ Metode awal adalah Tunai jika tersedia dan aktif untuk penjualan, termasuk setel
 
 ### Pemuatan master dan tampilan stok
 
-Frontend memakai satu `GET /master-data` tanpa paging. Produk, kategori, satuan, metode pembayaran, dan sumber pembelian disimpan di memori frontend selama sesi halaman aktif. Request serentak digabungkan; menyelesaikan penjualan tidak memuat ulang data master. Pencarian nama/SKU/barcode dilakukan di frontend, termasuk pemeriksaan barcode yang tidak ditemukan.
+Frontend memakai `GET /master-data` tanpa paging hanya untuk kategori, satuan,
+metode pembayaran, dan sumber pembelian. Produk dimuat per halaman melalui
+`GET /katalog/produk`; pencarian dan lookup barcode/SKU juga melalui API. Request
+serentak digabungkan; menyelesaikan penjualan tidak memuat ulang data master.
 
-Perubahan master melalui aplikasi langsung membatalkan cache dan memuat snapshot terbaru. Tab/komputer lain memeriksa `GET /master-data/version` setiap 30 detik saat halaman terlihat, serta saat jendela kembali aktif. Hanya saat versi berubah data lengkap diambil lagi. Muat ulang halaman memulai cache frontend baru; tombol **Muat ulang data** membaca ulang cache backend juga (untuk perubahan langsung melalui SQL Editor).
+Setelah mutasi master/favorit berhasil, frontend menyinkronkan snapshot master
+terbaru, lalu membatalkan cache katalog **sekali**. Pemeriksaan versi yang berjalan
+bersamaan tidak memicu fetch katalog kedua. Jika master-data sementara gagal,
+katalog tetap diperbarui agar favorit yang sudah tersimpan langsung terlihat.
+Favorit toko berlaku untuk semua pengguna, tanpa menunggu TTL cache satu jam.
+Tab lain menerima notifikasi storage; komputer lain memeriksa
+`GET /master-data/version` setiap 30 detik saat halaman terlihat, serta saat
+jendela kembali aktif. Hanya saat versi berubah master dan katalog dimuat ulang.
+Muat ulang halaman memulai cache frontend baru; tombol **Muat ulang data** juga
+membaca ulang cache backend (untuk perubahan langsung melalui SQL Editor).
 
 Saldo dan peringatan stok tidak ditampilkan pada penjualan atau daftar Produk. Stok, stok awal, dan penyesuaian tersedia di **Pembelian**; saldo dimuat saat membuka menu tersebut dan setelah perubahan stok. Penjualan tetap diizinkan meskipun stok nol/negatif. Data master tidak dicampur dengan saldo stok yang sering berubah.
 

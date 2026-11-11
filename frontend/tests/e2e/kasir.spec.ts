@@ -1,9 +1,10 @@
 import { test, expect, type Page } from '@playwright/test'
 import { jakartaDay } from '../../lib/history-date'
+import { catalogFixture } from './catalog-fixture'
 
 async function mockAPI(page: Page, role = 'PEMILIK', timeoutOnce = false, stock = '10', productCount = 1) {
   const calls: { path: string; body: Record<string, unknown> }[] = []
-  const product = { id: 1, nama: 'Beras Ramos', sku: 'BR-001', barcode: '0012345678901', harga_jual: '10000', stok_minimum: '2', kategori_id: 1, satuan_id: 1, aktif: true }
+  const product = { id: 1, nama: 'Beras Ramos', sku: 'BR-001', barcode: '0012345678901', harga_jual: '10000', stok_minimum: '2', kategori_id: 1, satuan_id: 1, aktif: true, is_favorit: false }
   const methods = [
     { id: 1, nama: 'Cash', jenis: 'CASH', tarif_persen: '0', tarif_tetap: '0', penanggung_biaya: 'TOKO', aktif: true, untuk_penjualan: true, untuk_pembelian: true },
     { id: 2, nama: 'QRIS', jenis: 'QRIS', tarif_persen: '0.7', tarif_tetap: '0', penanggung_biaya: 'PELANGGAN', aktif: true, untuk_penjualan: true, untuk_pembelian: false },
@@ -29,8 +30,13 @@ async function mockAPI(page: Page, role = 'PEMILIK', timeoutOnce = false, stock 
         const purchase = path === '/pembelian'
         result = { id: 1, nomor: purchase ? 'BELI-20261028-230000-1' : 'BILL-20261028-230000-1', tanggal: '2026-10-28T16:00:00Z', status: 'SELESAI', metode_pembayaran_id: body.metode_pembayaran_id, subtotal_barang: purchase ? '7000' : '10000', diskon_transaksi: '0', total_belanja: purchase ? '7000' : '10000', biaya_pembayaran: '0', total_tagihan: '10000', total_pembayaran: '7000', jumlah_dibayar: body.jumlah_dibayar || '0', kembalian: '10000', detail: [{ id: 1, produk_id: 1, nama_produk: product.nama, jumlah: '1', harga_jual: '10000', harga_beli: '7000', diskon: '0', subtotal: purchase ? '7000' : '10000' }] }
       } else { result = { id: 9, ...body }; if (path === '/produk') { products.push(result as typeof product); version++ } }
+    } else if (request.method() === 'PUT' && path.endsWith('/favorit')) {
+      const product = products.find(product => product.id === Number(path.split('/')[2]))!
+      product.is_favorit = request.postDataJSON().is_favorit; version++; result = product
     } else {
-      if (path === '/master-data') result = { version: String(version), products, categories: [{ id: 1, nama: 'Sembako' }], units: [{ id: 1, nama: 'pcs' }], payments: methods, sources: role === 'PEMILIK' ? [{ id: 1, nama: 'Grosir Makmur', jenis: 'TOKO', aktif: true }] : [] }
+      if (path === '/master-data') result = { version: String(version), categories: [{ id: 1, nama: 'Sembako' }], units: [{ id: 1, nama: 'pcs' }], payments: methods, sources: role === 'PEMILIK' ? [{ id: 1, nama: 'Grosir Makmur', jenis: 'TOKO', aktif: true }] : [] }
+      if (path === '/katalog/produk') result = catalogFixture(products, url.searchParams, String(version))
+      if (/^\/produk\/\d+$/.test(path)) result = products.find(product => product.id === Number(path.split('/')[2]))
       if (path === '/master-data/version') result = { version: String(version) }
       if (path === '/stok/ringkasan') result = products.map(product => ({ id: product.id, stok: stock, stok_minimum: '2' }))
       if (path === '/me') result = { id: 1, nama: 'Kasir Test', peran: role }
@@ -302,7 +308,7 @@ test('master sekali tanpa paging, tidak dimuat ulang setelah penjualan; stok han
   await expect(page.getByRole('dialog')).toContainText('PEMBAYARAN BERHASIL')
   await page.keyboard.press('Enter')
   expect(reads.filter(path => path === '/api/v1/master-data')).toHaveLength(1)
-  expect(reads.filter(path => /\/(produk|kategori|satuan|metode-pembayaran|sumber-pembelian|stok)$/.test(path))).toHaveLength(0)
+  expect(reads.filter(path => /^\/api\/v1\/(produk|kategori|satuan|metode-pembayaran|sumber-pembelian|stok)$/.test(path))).toHaveLength(0)
   expect(reads.filter(path => path === '/api/v1/stok/ringkasan')).toHaveLength(0)
   await page.locator('.pos-more > summary').click()
   await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Pembelian', exact: true }).click()
@@ -779,9 +785,11 @@ for (const width of [320, 390]) {
 for (const width of [390, 1440]) {
   test(`loading daftar produk dan favorit terlihat ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 })
-    const initialResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/master-data')
+    const initialResponse = page.waitForResponse(response => response.request().method() === 'GET' && new URL(response.url()).pathname === '/api/v1/master-data')
+    const initialCatalogResponse = page.waitForResponse(response => response.request().method() === 'GET' && new URL(response.url()).pathname === '/api/v1/katalog/produk')
     await mockAPI(page)
     const initial = await (await initialResponse).json()
+    const initialCatalog = await (await initialCatalogResponse).json()
     await expect(page.getByRole('button', { name: 'Urutan produk penjualan', exact: true })).toBeHidden()
     await expect(page.getByLabel('Utamakan favorit', { exact: true })).toBeHidden()
     await expect(page.getByRole('button', { name: 'Perbarui terlaris', exact: true })).toBeHidden()
@@ -831,8 +839,11 @@ for (const width of [390, 1440]) {
     await page.route('http://api.test/api/v1/produk/1/favorit', async route => {
       if (route.request().method() === 'OPTIONS') { await route.fulfill({ status: 204, headers: cors }); return }
       await favoriteGate
-      if (!fail) initial.data.products[0].is_favorit = true
-      await route.fulfill({ status: fail ? 500 : 200, json: fail ? { error: { message: 'Favorit belum tersimpan' } } : { data: { ...initial.data.products[0], is_favorit: true } }, headers: cors })
+      if (!fail) {
+        initialCatalog.data.items[0].is_favorit = true
+        await page.route('http://api.test/api/v1/katalog/produk?**', route => route.fulfill({ json: initialCatalog, headers: cors }))
+      }
+      await route.fulfill({ status: fail ? 500 : 200, json: fail ? { error: { message: 'Favorit belum tersimpan' } } : { data: initialCatalog.data.items[0] }, headers: cors })
     })
     await page.getByRole('button', { name: 'Tandai favorit Beras Ramos', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Menyimpan favorit Beras Ramos', exact: true })).toHaveAttribute('aria-busy', 'true')
@@ -1005,7 +1016,7 @@ test('4275 produk tetap membuka daftar dengan maksimal 50 baris', async ({ page 
   const nav = page.getByRole('navigation', { name: 'Menu utama' })
   await nav.getByRole('button', { name: 'Produk', exact: true }).click()
   await expect(page.locator('.product-list-row')).toHaveCount(50)
-  await expect(page.getByText('50 dari 4275 produk ditampilkan', { exact: true })).toBeVisible()
+  await expect(page.getByText('50 produk ditampilkan · gulir untuk lainnya', { exact: true })).toBeVisible()
   await page.getByLabel('Cari daftar produk', { exact: true }).fill('TEST-4275')
   await expect(page.locator('.product-list-row')).toHaveCount(1)
   await expect(page.locator('.product-list-row')).toContainText('Produk Uji 4275')
@@ -1131,7 +1142,11 @@ test.describe('pilihan produk mobile', () => {
     const base = { sku: 'BR-001', barcode: null, harga_jual: '10000', stok_minimum: '0', kategori_id: 1, satuan_id: 1, aktif: true }
     await page.route('http://api.test/api/v1/master-data', route => route.fulfill({
       headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization,content-type' },
-      json: { data: { version: '2', products: [{ ...base, id: 1, nama: 'Beras Ramos' }, { ...base, id: 2, sku: 'MG-002', nama: 'Minyak Goreng' }], categories: [{ id: 1, nama: 'Sembako' }], units: [{ id: 1, nama: 'pcs' }], payments: [{ id: 1, nama: 'Tunai', jenis: 'CASH', aktif: true, untuk_penjualan: true, tarif_persen: '0', tarif_tetap: '0', penanggung_biaya: 'TOKO' }], sources: [] } },
+      json: { data: { version: '2', categories: [{ id: 1, nama: 'Sembako' }], units: [{ id: 1, nama: 'pcs' }], payments: [{ id: 1, nama: 'Tunai', jenis: 'CASH', aktif: true, untuk_penjualan: true, tarif_persen: '0', tarif_tetap: '0', penanggung_biaya: 'TOKO' }], sources: [] } },
+    }))
+    await page.route('http://api.test/api/v1/katalog/produk?**', route => route.fulfill({
+      headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization,content-type' },
+      json: { data: catalogFixture([{ ...base, id: 1, nama: 'Beras Ramos' }, { ...base, id: 2, sku: 'MG-002', nama: 'Minyak Goreng' }], new URL(route.request().url()).searchParams, '2') },
     }))
     await page.reload()
     const cards = page.locator('.sale-product')

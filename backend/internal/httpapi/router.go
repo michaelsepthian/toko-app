@@ -21,7 +21,7 @@ func New(c config.Config, store *repository.Store) http.Handler {
 	api := http.NewServeMux()
 	svc := &service.Service{Store: store}
 	registerUsers(api, svc)
-	catalog := registerCatalog(api, store.DB)
+	catalog := registerCatalog(api, store.DB, c.ProductCacheTTL)
 	registerMasters(api, store.DB, catalog.invalidate)
 	registerDailySummaries(api, svc)
 	registerCashPurchaseNotes(api, svc)

@@ -1,6 +1,7 @@
 'use client'
-import { useProductPages } from '@/lib/use-product-pages'
-import { ProductPageEnd } from './product-page-end'
+import { useProductCatalog } from '@/lib/use-product-catalog'
+import { CatalogStatus } from './catalog-status'
+import { ProductSelect } from './product-select'
 import { ProductLoading } from './product-loading'
 import { SearchSelect } from './search-select'
 import { UsersMaster } from './users-master'
@@ -22,8 +23,9 @@ export function Products({ data, refresh, owner, loading = false }: Props & { ow
   const empty = { nama: '', sku: '', barcode: '', harga_jual: '', stok_minimum: '0', kategori_id: '', satuan_id: '', aktif: true, is_favorit: false }
   const [form, setForm] = useState(empty); const [editing, setEditing] = useState<number | null>(null)
   const [query, setQuery] = useState('')
-  const products = useMemo(() => data.products.filter(product => `${product.nama} ${product.sku} ${product.barcode ?? ''}`.toLowerCase().includes(query.trim().toLowerCase())), [data.products, query])
-  const { visibleProducts, endRef, hasMore } = useProductPages(products, !loading)
+  const catalog = useProductCatalog({ q: query, aktif: 'all', sort: 'newest' })
+  const visibleProducts = catalog.products
+  loading = loading || catalog.loading
   const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useNotice()
   function edit(p: Product) { setError(''); setEditorOpen(true); setEditing(p.id); setForm({ nama: p.nama, sku: p.sku, barcode: p.barcode ?? '', harga_jual: p.harga_jual.replace(/\.0+$/, ''), stok_minimum: p.stok_minimum, kategori_id: String(p.kategori_id), satuan_id: String(p.satuan_id), aktif: p.aktif, is_favorit: Boolean(p.is_favorit) }) }
   return <div className="products-page mx-auto max-w-6xl p-5">
@@ -46,10 +48,10 @@ export function Products({ data, refresh, owner, loading = false }: Props & { ow
       <div className="ui-form-actions flex flex-col gap-2"><BusyButton type="submit" className="h-12 w-full" busy={busy}>Simpan Produk</BusyButton></div>
     </fieldset></form></div>
     </ResponsivePanel>}
-    <div className="product-list min-w-0">{notice && <p role="status" className="mb-3 rounded-xl border bg-card p-3 text-sm text-primary">{notice}</p>}<div className="product-list-toolbar"><div><h1>Produk</h1><p>{data.products.length} produk</p></div>{owner && <Button disabled={busy} onClick={() => { setNotice(''); setError(''); setForm(empty); setEditing(null); setEditorOpen(true) }}><Plus />Tambah Produk</Button>}</div><Panel title="Daftar Produk" subtitle={loading ? 'Memuat produk…' : `${visibleProducts.length} dari ${products.length} produk ditampilkan`}><div ref={searchBarRef} className="product-search-bar"><Field label="Cari daftar produk" value={query} onChange={value => { setQuery(value); searchBarRef.current?.scrollIntoView({ block: 'start' }) }} /></div><div className="divide-y" aria-busy={loading}>{loading && <ProductLoading />}{(!loading ? visibleProducts : []).map(p => {
+    <div className="product-list min-w-0">{notice && <p role="status" className="mb-3 rounded-xl border bg-card p-3 text-sm text-primary">{notice}</p>}<div className="product-list-toolbar"><div><h1>Produk</h1><p>{visibleProducts.length} produk dimuat</p></div>{owner && <Button disabled={busy} onClick={() => { setNotice(''); setError(''); setForm(empty); setEditing(null); setEditorOpen(true) }}><Plus />Tambah Produk</Button>}</div><Panel title="Daftar Produk" subtitle={loading ? 'Memuat produk…' : `${visibleProducts.length} produk ditampilkan${catalog.hasNext ? ' · gulir untuk lainnya' : ''}`}><div ref={searchBarRef} className="product-search-bar"><Field label="Cari daftar produk" value={query} onChange={value => { setQuery(value); searchBarRef.current?.scrollIntoView({ block: 'start' }) }} /></div><div className="divide-y" aria-busy={loading}>{loading && <ProductLoading />}{(!loading ? visibleProducts : []).map(p => {
       const content = <><span className="product-row-info"><strong>{p.nama} {p.is_favorit && <span className="text-amber-500" title="Favorit toko">★</span>} {!p.aktif && '(nonaktif)'}</strong><span className="text-sm text-muted-foreground">{p.sku} · {p.barcode ?? 'Tanpa barcode'}</span></span><strong className="product-row-price">{money(p.harga_jual)}</strong></>
       return owner ? <button key={p.id} type="button" className="product-list-row product-row-button" aria-label={`Edit ${p.nama}`} aria-haspopup="dialog" disabled={busy} onClick={() => edit(p)}>{content}</button> : <article key={p.id} className="product-list-row">{content}</article>
-    })}{!loading && hasMore && <ProductPageEnd endRef={endRef} />}{!loading && !products.length && <p className="py-8 text-muted-foreground">{query ? 'Produk tidak ditemukan.' : 'Belum ada produk.'}</p>}</div></Panel></div>
+    })}<CatalogStatus catalog={catalog} />{!loading && !catalog.error && !visibleProducts.length && <p className="py-8 text-muted-foreground">{query ? 'Produk tidak ditemukan.' : 'Belum ada produk.'}</p>}</div></Panel></div>
   </div>
 }
 
@@ -119,19 +121,19 @@ export function Inventory({ data, refresh }: Props) {
   const [open, setOpen] = useState(false)
   const [stockID, setStockID] = useState(''); const [stockType, setStockType] = useState('AWAL'); const [change, setChange] = useState(''); const [reason, setReason] = useState('')
   const [query, setQuery] = useState('')
-  const products = useMemo(() => data.products.filter(product => `${product.nama} ${product.sku} ${product.barcode ?? ''}`.toLowerCase().includes(query.trim().toLowerCase())), [data.products, query])
-  const { visibleProducts, endRef, hasMore } = useProductPages(products)
+  const catalog = useProductCatalog({ q: query, aktif: 'all' })
+  const visibleProducts = catalog.products
   const stocks = useMemo(() => new Map(data.stocks.map(row => [row.id, row.stok])), [data.stocks])
   const units = useMemo(() => new Map(data.units.map(row => [row.id, row.nama])), [data.units])
   return <div className="purchase-inventory mx-auto max-w-7xl space-y-4 p-5">
     {notice && <p role="status">{notice}</p>}
     <ResponsivePanel open={open} busy={busy} title="Stok Awal / Penyesuaian" onClose={() => setOpen(false)}>
       <ErrorBox>{error}</ErrorBox><p className="mb-3 text-sm text-muted-foreground">Pembelian baru dicatat lewat menu Pembelian.</p>
-      <form className="space-y-3" onSubmit={async e => { e.preventDefault(); if (busy) return; setBusy(true); setError(''); try { await api(`/produk/${stockID}/mutasi`, 'POST', { jenis: stockType, perubahan: change, catatan: reason }); await refresh(); setChange(''); setReason(''); setNotice('Mutasi stok tersimpan.'); setOpen(false) } catch (err) { setError(message(err)) } finally { setBusy(false) } }}><fieldset disabled={busy} className="space-y-3"><div className="block text-sm font-semibold"><span>Produk</span><SearchSelect className={inputClass} value={stockID} onValueChange={value => setStockID(value)} required aria-label="Produk"><option value="">Pilih produk</option>{data.products.filter(p => p.aktif).map(p => <option key={p.id} value={p.id}>{p.nama}</option>)}</SearchSelect></div><SearchSelect className={inputClass} aria-label="Jenis mutasi" value={stockType} onValueChange={value => setStockType(value)}><option value="AWAL">Stok awal (sekali per produk)</option><option value="PENYESUAIAN">Penyesuaian selisih stok</option></SearchSelect><Field label="Perubahan stok (contoh: 10 atau -2)" value={change} onChange={setChange} required /><Field label="Alasan" value={reason} onChange={setReason} required /><BusyButton type="submit" busy={busy}>Simpan Mutasi</BusyButton></fieldset></form>
+      <form className="space-y-3" onSubmit={async e => { e.preventDefault(); if (busy) return; setBusy(true); setError(''); try { await api(`/produk/${stockID}/mutasi`, 'POST', { jenis: stockType, perubahan: change, catatan: reason }); await refresh(); setChange(''); setReason(''); setNotice('Mutasi stok tersimpan.'); setOpen(false) } catch (err) { setError(message(err)) } finally { setBusy(false) } }}><fieldset disabled={busy} className="space-y-3"><div className="block text-sm font-semibold"><span>Produk</span><ProductSelect value={stockID} onValueChange={setStockID} required label="Produk" /></div><SearchSelect className={inputClass} aria-label="Jenis mutasi" value={stockType} onValueChange={value => setStockType(value)}><option value="AWAL">Stok awal (sekali per produk)</option><option value="PENYESUAIAN">Penyesuaian selisih stok</option></SearchSelect><Field label="Perubahan stok (contoh: 10 atau -2)" value={change} onChange={setChange} required /><Field label="Alasan" value={reason} onChange={setReason} required /><BusyButton type="submit" busy={busy}>Simpan Mutasi</BusyButton></fieldset></form>
     </ResponsivePanel>
     <div className="purchase-stock-list"><Button className="mb-4" onClick={() => { setError(''); setOpen(true) }}>Stok Awal / Penyesuaian</Button><Panel title="Stok Produk" subtitle="Saldo stok terkini, termasuk stok negatif dari penjualan.">
       <Field label="Cari stok produk" value={query} onChange={setQuery} />
-      <div className="mt-3 divide-y">{visibleProducts.map(product => <div key={product.id} className="stock-list-row flex items-center justify-between gap-3 py-3"><div><strong>{product.nama}</strong><p className="text-sm text-muted-foreground">{product.sku}</p></div><span className="font-semibold">{stocks.get(product.id) ?? '—'} {units.get(product.satuan_id)}</span></div>)}{hasMore && <ProductPageEnd endRef={endRef} />}</div>
+      <div className="mt-3 divide-y">{catalog.loading && <ProductLoading />}{visibleProducts.map(product => <div key={product.id} className="stock-list-row flex items-center justify-between gap-3 py-3"><div><strong>{product.nama}</strong><p className="text-sm text-muted-foreground">{product.sku}</p></div><span className="font-semibold">{stocks.get(product.id) ?? '—'} {units.get(product.satuan_id)}</span></div>)}<CatalogStatus catalog={catalog} /></div>
     </Panel></div>
   </div>
 }
