@@ -1,4 +1,4 @@
-# Database ini hanya untuk integration test. Tidak berisi data Supabase asli.
+# Database ini hanya untuk integration test. Tidak berisi data aplikasi produksi.
 services:
   postgres:
     image: postgres:17-alpine

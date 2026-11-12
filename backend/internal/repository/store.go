@@ -3,6 +3,8 @@ package repository
 
 import (
 	"context"
+	"errors"
+
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -11,10 +13,33 @@ import (
 
 type Store struct{ DB *gorm.DB }
 
-func (s *Store) UserByAuthID(ctx context.Context, id string) (model.Pengguna, error) {
-	var user model.Pengguna
-	err := s.DB.WithContext(ctx).Where("auth_user_id = ? AND aktif = ?", id, true).First(&user).Error
-	return user, err
+// ErrNotFound menyembunyikan detail ORM dari service dan transport.
+var ErrNotFound = gorm.ErrRecordNotFound
+
+func IsNotFound(err error) bool { return errors.Is(err, ErrNotFound) }
+
+func (s *Store) WithContext(ctx context.Context) *Store {
+	return &Store{DB: s.DB.WithContext(ctx)}
+}
+
+// Semua repository dalam callback memakai koneksi transaksi yang sama.
+// Service menentukan batas unit of work tanpa menerima objek GORM.
+func (s *Store) Transaction(ctx context.Context, work func(*Store) error) error {
+	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return work(&Store{DB: tx})
+	})
+}
+
+func (s *Store) LockRequest(key string) error {
+	return s.DB.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?,0))", key).Error
+}
+
+func (s *Store) Ready(ctx context.Context) error {
+	pool, err := s.DB.DB()
+	if err != nil {
+		return err
+	}
+	return pool.PingContext(ctx)
 }
 
 // Semua penulis stok harus mengunci produk lebih dahulu, dalam urutan ID yang sama.

@@ -11,7 +11,7 @@ import (
 
 func Open(ctx context.Context, dsn string) (*gorm.DB, error) {
 	db, err := gorm.Open(postgres.New(postgres.Config{
-		DSN: dsn, PreferSimpleProtocol: true, // Kompatibel dengan transaction pooler Supabase.
+		DSN: dsn, PreferSimpleProtocol: true,
 	}), &gorm.Config{
 		Logger:               logger.Default.LogMode(logger.Silent), // Jangan bocorkan input/SQL sensitif.
 		DisableAutomaticPing: true,

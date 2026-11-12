@@ -4,24 +4,70 @@ async function setup(page: Page, role = 'PEMILIK') {
   const calls: Record<string, unknown>[] = []
   const user = { id: 1, nama: 'Pemilik Toko', username: 'pemilik', peran: role, aktif: true }
   const users = [user]
-  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET,POST,OPTIONS' }
-  await page.route('http://api.test/api/v1/**', async route => {
-    const request = route.request(), path = new URL(request.url()).pathname.replace('/api/v1', '')
-    if (request.method() === 'OPTIONS') { await route.fulfill({ status: 204, headers: cors }); return }
-    if (path === '/pengguna' && request.method() === 'POST') {
-      const body = request.postDataJSON(); calls.push(body)
-      if (users.some(user => user.username === body.username)) { await route.fulfill({ status: 409, headers: cors, json: { error: { message: 'Username sudah digunakan' } } }); return }
-      const created = { id: users.length + 1, nama: body.nama, username: body.username, peran: body.peran, aktif: true }
-      users.push(created)
-      await route.fulfill({ status: 201, headers: cors, json: { data: created } }); return
+  const cors = {
+    'access-control-allow-origin': 'http://127.0.0.1:3007',
+    'access-control-allow-credentials': 'true',
+    'access-control-allow-headers': 'authorization,content-type',
+    'access-control-allow-methods': 'GET,POST,OPTIONS',
+  }
+  await page.route('http://api.test/api/v1/**', async (route) => {
+    const request = route.request(),
+      path = new URL(request.url()).pathname.replace('/api/v1', '')
+    if (request.method() === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: cors })
+      return
     }
-    const data = path === '/setup' ? { initialized: true, registration_open: false }
-      : path === '/auth/login' ? { user, access_token: 'toko_' + 'a'.repeat(64), expires_at: new Date(Date.now() + 3600000).toISOString() }
-      : path === '/me' ? user
-      : path === '/master-data' ? { version: '1', categories: [], units: [], payments: [], sources: [] }
-      : path === '/katalog/produk' ? { items: [], has_next: false, next_cursor: null, version: '1' }
-      : path === '/master-data/version' ? { version: '1' }
-      : path === '/pengguna' ? users : []
+    if (path === '/auth/refresh') {
+      await route.fulfill({
+        status: 401,
+        headers: cors,
+        json: { error: { code: 'SESSION_INVALID', message: 'Sesi berakhir' } },
+      })
+      return
+    }
+    if (path === '/pengguna' && request.method() === 'POST') {
+      const body = request.postDataJSON()
+      calls.push(body)
+      if (users.some((user) => user.username === body.username)) {
+        await route.fulfill({
+          status: 409,
+          headers: cors,
+          json: { error: { message: 'Username sudah digunakan' } },
+        })
+        return
+      }
+      const created = {
+        id: users.length + 1,
+        nama: body.nama,
+        username: body.username,
+        peran: body.peran,
+        aktif: true,
+      }
+      users.push(created)
+      await route.fulfill({ status: 201, headers: cors, json: { data: created } })
+      return
+    }
+    const data =
+      path === '/setup'
+        ? { initialized: true, registration_open: false }
+        : path === '/auth/login'
+          ? {
+              user,
+              access_token: 'test.jwt.signature',
+              expires_at: new Date(Date.now() + 1800000).toISOString(),
+              session_expires_at: new Date(Date.now() + 17 * 3600000).toISOString(),
+            }
+          : path === '/me'
+            ? user
+            : path === '/master-data'
+              ? { version: '1', categories: [], units: [], payments: [], sources: [] }
+              : path === '/katalog/produk'
+                ? { items: [], has_next: false, next_cursor: null, version: '1' }
+                : path === '/master-data/version'
+                  ? { version: '1' }
+                  : path === '/pengguna'
+                    ? users
+                    : []
     await route.fulfill({ headers: cors, json: { data } })
   })
   await page.goto('/')
@@ -33,7 +79,9 @@ async function setup(page: Page, role = 'PEMILIK') {
 }
 
 for (const mobile of [false, true]) {
-  test(`pengguna: create roles, validation, themes ${mobile ? 'mobile' : 'desktop'}`, async ({ page }) => {
+  test(`pengguna: create roles, validation, themes ${mobile ? 'mobile' : 'desktop'}`, async ({
+    page,
+  }) => {
     if (mobile) await page.setViewportSize({ width: 390, height: 844 })
     const calls = await setup(page)
     await page.getByRole('button', { name: 'Data Master', exact: true }).click()
@@ -51,7 +99,12 @@ for (const mobile of [false, true]) {
     await page.getByLabel('Konfirmasi password', { exact: true }).fill('password-test')
     await page.getByRole('button', { name: 'Simpan Pengguna', exact: true }).click()
     await expect(page.getByRole('status')).toContainText('berhasil ditambahkan')
-    expect(calls[0]).toEqual({ nama: 'Rina Kasir', username: 'rina.kasir', password: 'password-test', peran: 'KASIR' })
+    expect(calls[0]).toEqual({
+      nama: 'Rina Kasir',
+      username: 'rina.kasir',
+      password: 'password-test',
+      peran: 'KASIR',
+    })
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await page.getByRole('button', { name: 'Tambah Pengguna', exact: true }).click()
     await expect(page.getByLabel('Password', { exact: true })).toHaveValue('')
@@ -61,7 +114,9 @@ for (const mobile of [false, true]) {
     await page.getByLabel('Konfirmasi password', { exact: true }).fill('password-test')
     await page.getByLabel('Role', { exact: true }).selectOption('PEMILIK')
     await page.getByRole('button', { name: 'Simpan Pengguna', exact: true }).click()
-    await expect(page.getByRole('alert').filter({ hasText: 'Username sudah digunakan' })).toBeVisible()
+    await expect(
+      page.getByRole('alert').filter({ hasText: 'Username sudah digunakan' }),
+    ).toBeVisible()
     await expect(page.getByLabel('Nama pengguna', { exact: true })).toHaveValue('Dewi Pemilik')
     await page.getByLabel('Username', { exact: true }).fill('dewi.pemilik')
     await page.getByRole('button', { name: 'Simpan Pengguna', exact: true }).click()
@@ -73,10 +128,20 @@ for (const mobile of [false, true]) {
     await expect(page.getByText('@dewi.pemilik', { exact: true })).toHaveCount(0)
     await page.getByLabel('Cari pengguna', { exact: true }).fill('')
     for (const theme of ['light', 'dark']) {
-      await page.evaluate(theme => { document.documentElement.classList.toggle('dark', theme === 'dark'); localStorage.setItem('toko:theme', theme) }, theme)
-      await page.getByRole('heading', { name: 'Daftar Pengguna', exact: true }).scrollIntoViewIfNeeded()
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-      await page.screenshot({ path: `test-results/users-${mobile ? 'mobile' : 'desktop'}-${theme}.png`, fullPage: true })
+      await page.evaluate((theme) => {
+        document.documentElement.classList.toggle('dark', theme === 'dark')
+        localStorage.setItem('toko:theme', theme)
+      }, theme)
+      await page
+        .getByRole('heading', { name: 'Daftar Pengguna', exact: true })
+        .scrollIntoViewIfNeeded()
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      ).toBe(true)
+      await page.screenshot({
+        path: `test-results/users-${mobile ? 'mobile' : 'desktop'}-${theme}.png`,
+        fullPage: true,
+      })
     }
   })
 }

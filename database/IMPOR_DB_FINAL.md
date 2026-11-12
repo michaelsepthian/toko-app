@@ -53,7 +53,7 @@ Primary key serta sequence tetap mengikuti identity database. SQL tidak menetapk
 
    Helper membaca `.env.docker` dan menjalankan SQL sebagai `toko_app`, pemilik
    tabel aplikasi. Database tujuan mengikuti `POSTGRES_DB`, bukan nama database
-   yang ditebak. File SQL ini tidak membutuhkan `auth.users`, `anon`, atau
+   yang ditebak. File SQL ini tidak membutuhkan schema identitas eksternal, `anon`, atau
    `authenticated` pada PostgreSQL mandiri. Tidak perlu mengubah data Excel.
 4. Sesudah berhasil, kosongkan cache master backend dan muat ulang frontend:
 
@@ -83,8 +83,8 @@ Port 55432 mengikuti konfigurasi lokal yang sudah disiapkan; sesuaikan host, por
 nama database, dan user jika berbeda. Password diminta interaktif. Bisa juga
 menjalankan seluruh SQL melalui query editor DBeaver/pgAdmin sebagai pemilik tabel.
 
-File tetap bisa dijalankan melalui Supabase SQL Editor. Pembatasan hak akses untuk
-role Supabase dilakukan hanya jika role tersebut tersedia.
+File dijalankan melalui psql. Pembatasan hak akses role client dilakukan hanya
+jika role tersebut tersedia.
 
 ## Data lama dan menjalankan ulang
 

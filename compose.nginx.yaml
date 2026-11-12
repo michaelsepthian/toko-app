@@ -1,6 +1,9 @@
 # Untuk VPS dengan TLS/domain ditangani reverse proxy provider.
 # Gunakan bersama compose.yaml. Port sama dengan stack Nginx VPS yang sudah ada.
 services:
+  api:
+    environment:
+      SESSION_COOKIE_SECURE: "true"
   frontend:
     image: ${FRONTEND_IMAGE:-toko-frontend:local}
     build:

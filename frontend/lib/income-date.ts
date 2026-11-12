@@ -6,5 +6,10 @@ export function validIncomeDate(value: string): boolean {
 
 export function incomeDateLabel(value: string): string {
   if (!validIncomeDate(value)) return value
-  return new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(`${value}T00:00:00Z`))
+  return new Intl.DateTimeFormat('id-ID', {
+    timeZone: 'Asia/Jakarta',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(new Date(`${value}T00:00:00Z`))
 }

@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { calendarDays, shiftShoppingMonth, shoppingDateLabel, shoppingQuantity } from '../lib/shopping-plan'
+import {
+  calendarDays,
+  shiftShoppingMonth,
+  shoppingDateLabel,
+  shoppingQuantity,
+} from '../lib/shopping-plan'
 
 test('calendar always shows six complete Monday-first weeks including leap day', () => {
   const days = calendarDays('2028-02')

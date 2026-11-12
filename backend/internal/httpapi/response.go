@@ -8,23 +8,26 @@ import (
 	"net/http"
 	"strconv"
 
-	"gorm.io/gorm"
 	"toko/backend/internal/apperror"
+	"toko/backend/internal/dto"
+	"toko/backend/internal/repository"
 )
 
 func respond(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
+	_ = json.NewEncoder(w).Encode(dto.Envelope[any]{Data: data})
 }
 func fail(w http.ResponseWriter, err error) {
 	status, message := http.StatusInternalServerError, "Terjadi kesalahan internal"
+	code := ""
 	var app *apperror.Error
 	var state interface{ SQLState() string }
 	switch {
 	case errors.As(err, &app):
 		status, message = app.Status, app.Message
-	case errors.Is(err, gorm.ErrRecordNotFound):
+		code = app.Code
+	case repository.IsNotFound(err):
 		status, message = 404, "Data tidak ditemukan"
 	case errors.As(err, &state):
 		switch state.SQLState() {
@@ -43,7 +46,7 @@ func fail(w http.ResponseWriter, err error) {
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"message": message}})
+	_ = json.NewEncoder(w).Encode(dto.ErrorResponse{Error: dto.ErrorDetail{Message: message, Code: code}})
 }
 func decode(w http.ResponseWriter, r *http.Request, dst any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)

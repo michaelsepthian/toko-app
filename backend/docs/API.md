@@ -1,12 +1,29 @@
 # Panduan API
 
 Base URL: `http://127.0.0.1:8080/api/v1`.
-Endpoint bisnis wajib header `Authorization: Bearer <token_sesi>`.
-`GET /setup`, `POST /auth/register`, dan `POST /auth/login` tidak memerlukan token.
-Body registrasi dan login hanya `{"username":"pemilik","password":"password-anda"}`.
-Registrasi mengembalikan 201, login 200; `data` berisi `user`, `access_token`, dan
-`expires_at`. Password/hash tidak dikembalikan. Registrasi ditutup jika sudah ada
-pengguna. `POST /auth/logout` memakai Bearer token dan mencabut sesi saat ini.
+Endpoint bisnis wajib header `Authorization: Bearer <JWT>`.
+`GET /setup`, `POST /auth/register`, dan `POST /auth/login` tidak memerlukan access token.
+Login dan registrasi menerima `{username,password}`. Registrasi hanya terbuka ketika
+belum ada pengguna; pengguna pertama menjadi PEMILIK. Registrasi mengembalikan 201,
+login 200. `data` berisi `user`, `access_token`, `expires_at`, dan `session_expires_at`.
+JWT berlaku maksimal 30 menit; batas sesi absolut 17 jam sejak login.
+
+`POST /auth/refresh` memakai cookie `toko_refresh` dan mengembalikan bentuk respons
+login yang sama serta cookie refresh baru. Cookie HttpOnly, SameSite=Lax,
+Path=/api/v1/auth, Secure pada HTTPS, dan tidak dikirim sebagai field JSON.
+Refresh token hanya dapat dipakai sekali; replay mencabut sesi. Refresh tidak
+memperpanjang `session_expires_at`.
+
+`POST /auth/logout` memakai cookie tersebut, tetap bekerja tanpa JWT yang valid,
+dan mencabut sesi beserta seluruh JWT terkait. Logout berulang bersifat idempotent.
+Refresh/logout mewajibkan `Origin` persis sesuai `CORS_ORIGIN`; browser memakai
+`credentials: include`. Semua respons token memakai Cache-Control: no-store.
+
+Error JWT kedaluwarsa: `{"error":{"code":"ACCESS_TOKEN_EXPIRED","message":"..."}}`.
+Frontend melakukan satu refresh lalu mengulang request awal maksimal sekali.
+Error sesi tidak valid memakai `SESSION_INVALID`; error bisnis tetap mengikuti
+kontrak sebelumnya. Akun hanya memakai password lokal; tidak ada fallback provider lain.
+
 Body request menggunakan `Content-Type: application/json`.
 
 Respons berhasil dibungkus `{"data": ...}`. Respons gagal memakai

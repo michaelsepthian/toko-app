@@ -14,7 +14,7 @@ Frontend → http://127.0.0.1:8080/api/v1 → container api → postgres:5432
 
 `postgres` adalah nama service di jaringan Docker, bukan IP VPS. Di dalam container,
 `localhost` menunjuk container itu sendiri. Backend karena itu memakai `DB_HOST=postgres`.
-Supabase tidak diperlukan untuk instalasi baru; login username/password tetap tersedia.
+Login memakai username/password lokal, JWT, dan cookie refresh HttpOnly.
 
 ## Menjalankan lokal
 
@@ -50,8 +50,7 @@ Supabase tidak diperlukan untuk instalasi baru; login username/password tetap te
    ```
 
    Restart `npm run dev` setelah mengganti environment frontend. Buka frontend dan
-   daftar akun pemilik untuk database baru. Data Supabase lama **tidak otomatis
-   dipindahkan**. Frontend yang memakai database baru dapat meminta login ulang.
+   daftar akun pemilik untuk database baru. Frontend yang memakai database baru meminta login ulang.
 
 Jika port 8080 masih dipakai `go run` lama, hentikan proses itu sendiri sebelum
 memakai port yang sama, atau ganti `API_PORT=8081` di `.env.docker`. URL frontend
@@ -145,9 +144,8 @@ docker compose --env-file .env.docker exec -T postgres \
 docker compose --env-file .env.docker up -d --wait api
 ```
 
-Perintah restore ini untuk dump database mandiri yang dibuat di atas. Migrasi data
-dari Supabase membutuhkan penyesuaian referensi `auth.users` pada schema lama;
-gunakan schema mandiri terbaru dan rencanakan transfer data tersendiri.
+Perintah restore ini untuk dump database mandiri yang dibuat di atas. Migrasi data dari database eksternal membutuhkan penyesuaian schema; gunakan
+schema mandiri terbaru dan rencanakan transfer data tersendiri.
 
 ## Frontend + backend di satu VPS dengan Caddy
 
@@ -306,3 +304,22 @@ proxy provider. Pertahankan port API/database yang ada di `.env.docker`.
 `compose.vps.yaml` adalah alternatif Caddy untuk IP publik langsung; gunakan
 satu overlay proxy saja. Detail adopsi file Nginx VPS dan pengujian tersedia di
 [AUTOMATION.md](AUTOMATION.md#transisi-vps-yang-sudah-memakai-nginx-lokal).
+
+## JWT dan refresh token
+
+Isi `JWT_SECRET_BASE64` di `.env.docker` dengan keluaran `openssl rand -base64 32`.
+Simpan nilai yang sama untuk seluruh instance API dan restart berikutnya; jangan
+masukkan kunci ke frontend atau image. Mengganti kunci membatalkan JWT yang beredar.
+Backend juga mewajibkan `CORS_ORIGIN` berupa origin frontend tanpa path.
+
+Access JWT berlaku maksimal 30 menit, refresh cookie HttpOnly memungkinkan
+perpanjangan otomatis sampai 17 jam sejak login. Overlay VPS/Caddy dan Nginx
+memaksa `SESSION_COOKIE_SECURE=true`; HTTP lokal menggunakan `false`.
+Gunakan hostname yang sama untuk frontend/API lokal, misalnya `localhost`.
+
+Sebelum memperbarui backend pada database lama, lakukan backup dan terapkan
+`database/migrations/20261112_jwt_refresh.sql` (terdaftar pada manifest migrasi).
+Migrasi menghapus sesi lama sehingga pengguna login ulang sekali, mempertahankan
+akun/transaksi, dan menghapus kolom identitas eksternal. Akun aktif tanpa password
+lokal membuat migrasi gagal dengan pesan jelas; siapkan password terlebih dahulu.
+Deploy backend dan frontend dalam satu jendela pembaruan setelah migrasi.

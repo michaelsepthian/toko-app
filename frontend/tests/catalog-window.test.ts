@@ -19,7 +19,13 @@ test('4275 products only mount rows around the viewport, including the last prod
 })
 
 test('long product names expand their row without overlapping the next row', () => {
-  const offsets = catalogOffsets(4, new Map([[0, 320], [2, 450]]))
+  const offsets = catalogOffsets(
+    4,
+    new Map([
+      [0, 320],
+      [2, 450],
+    ]),
+  )
   assert.deepEqual(offsets, [0, 331, 532, 993, 1194])
   assert.deepEqual(catalogWindow(offsets, 600, 150, 0), { start: 2, end: 3 })
   assert.deepEqual(catalogWindow(offsets, 993, 1, 0), { start: 3, end: 4 })

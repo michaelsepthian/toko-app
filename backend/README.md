@@ -6,7 +6,7 @@ cukup sederhana untuk dipelajari: HTTP → service → repository/GORM → Postg
 ## Fitur yang tersedia
 
 - Registrasi awal dan login dengan username/password; password di-hash bcrypt.
-- Sesi acak berlaku 12 jam, disimpan sebagai hash token dan dapat dicabut saat logout.
+- JWT access token maksimal 30 menit, refresh otomatis melalui cookie HttpOnly, dan batas sesi absolut 17 jam.
 - Pemilik dapat menambah dan memperbarui kategori, satuan, produk, sumber pembelian,
   serta metode pembayaran. Pengguna aktif dapat membacanya.
 - Penjualan dapat dibuat oleh pemilik/kasir; pembelian hanya oleh pemilik.
@@ -29,13 +29,12 @@ Untuk database PostgreSQL sendiri beserta backend Go dalam satu VPS, gunakan
 [petunjuk Docker](../deploy/README.md). Compose di root project menyiapkan database,
 volume persisten, schema/sequence/trigger, dan backend. Konfigurasi Docker berada
 pada `.env.docker`, terpisah dari `backend/.env`. Image backend dapat dibangun di
-laptop/CI lalu di-pull oleh VPS. Login baru tidak membutuhkan Supabase.
+laptop/CI lalu di-pull oleh VPS. Login memakai username/password lokal.
 
 ## Menjalankan aplikasi tanpa Docker untuk backend
 
 1. Install Go **1.26 atau lebih baru** dari https://go.dev/dl/.
-2. Jalankan `../database/schema.sql` melalui psql untuk PostgreSQL mandiri baru,
-   atau SQL Editor untuk Supabase baru. Docker Compose sudah menjalankannya otomatis.
+2. Jalankan `../database/schema.sql` melalui psql untuk PostgreSQL baru. Docker Compose sudah menjalankannya otomatis.
    Setelah schema, jalankan juga `migrations/20261101_tanggal_pendapatan.sql`.
    Instalasi Docker baru menjalankan migrasi ini otomatis; volume lama harus dimigrasi
    setelah backup sebelum menjalankan backend versi baru.
@@ -49,10 +48,9 @@ laptop/CI lalu di-pull oleh VPS. Login baru tidak membutuhkan Supabase.
    tidak ada email, konfirmasi, atau kode setup.
 4. Salin `.env.example` ke `.env`, kemudian isi field `DB_*` sesuai database lokal
    atau gunakan `DATABASE_URL` (lebih diutamakan jika diisi).
-   `SUPABASE_URL` dan `SUPABASE_ANON_KEY` tidak wajib untuk akun baru.
-   Jika memakai Supabase, pilih direct connection atau session pooler
-   dari menu **Connect**. Gunakan `sslmode=require` dan URL encode password.
-   `PreferSimpleProtocol` juga disetel untuk kompatibilitas transaction pooler.
+   Isi `JWT_SECRET_BASE64` dengan keluaran `openssl rand -base64 32` dan
+   `CORS_ORIGIN` sesuai origin frontend. Gunakan `SESSION_COOKIE_SECURE=false`
+   hanya untuk HTTP lokal; produksi HTTPS memakai `true`.
 5. Dari folder `backend`, jalankan:
 
    ```sh
@@ -73,15 +71,19 @@ laptop/CI lalu di-pull oleh VPS. Login baru tidak membutuhkan Supabase.
    ```
 
 Frontend login melalui `POST /api/v1/auth/login` dengan username/password.
-Backend mengembalikan token sesi acak yang dikirim lewat header Bearer untuk API
-bisnis. Password tidak disimpan sebagai teks; token sesi di database juga berupa
-hash. Logout mencabut sesi tersebut. Sesi berakhir setelah 12 jam.
+Backend mengembalikan JWT dengan TTL maksimal 30 menit dan cookie refresh HttpOnly.
+Refresh otomatis merotasi token tanpa memperpanjang batas sesi 17 jam sejak login.
+Password disimpan sebagai bcrypt; refresh token disimpan sebagai hash SHA-256.
+Logout mencabut sesi beserta seluruh JWT terkait. Refresh token tidak ada dalam JSON.
 
 Registrasi awal hanya dibuka ketika tabel pengguna kosong. Pembuatan akun/peran
-lain tetap menjadi kewenangan pemilik. Akun Supabase Auth lama yang sudah memiliki
-profil pengguna dapat login memakai username dan password lamanya: bila konfigurasi
-Supabase Auth masih tersedia, backend memverifikasi password lama sekali, kemudian
-menyimpan hash lokal untuk login berikutnya. Tidak ada email yang perlu diisi di UI.
+lain tetap menjadi kewenangan pemilik. Semua akun aktif harus memiliki password lokal.
+
+Database lama wajib menjalankan `../database/migrations/20261112_jwt_refresh.sql`
+sebelum backend baru diaktifkan. Migrasi mencabut sesi lama dan menghapus kolom
+identitas eksternal; akun dan transaksi dipertahankan. Migrasi ditolak jika masih
+ada akun aktif tanpa hash password lokal. Siapkan password lokal lebih dahulu.
+Migrasi historis yang sudah tercatat tidak boleh diubah karena memiliki checksum.
 
 ## TTL cache produk
 
@@ -99,12 +101,29 @@ cache sebelum TTL habis. Detail ada di [`docs/API.md`](docs/API.md#master-ringan
 cmd/api/main.go                  # entry point, dependency wiring, shutdown
 internal/config/config.go        # membaca dan memvalidasi environment
 internal/database/postgres.go    # koneksi GORM dan connection pool
-internal/model/models.go         # pemetaan tabel bisnis dan sesi login
-internal/repository/store.go     # query pengguna, row lock, agregasi stok
+internal/model/                  # model per domain dan enum bisnis bertipe
+internal/dto/                    # kontrak request/response, mapper tanpa model embed
+internal/repository/             # seluruh query/SQL/GORM dikelompokkan per domain
+internal/repository/store.go     # context, unit of work, helper lock bersama
 internal/service/validation.go   # validasi uang/jumlah serta subtotal detail
-internal/service/transaction.go  # alur penjualan, pembelian, pembatalan, stok
-internal/httpapi/                # routing, DTO master, auth, JSON, error
+internal/service/transaction.go  # use case CreateSale/CreatePurchase bertipe
+internal/service/transaction_input.go    # command dan validasi transaksi
+internal/service/transaction_cancel.go   # pembatalan dan pembalikan stok
+internal/service/stock.go        # aturan stok awal/penyesuaian
+internal/service/transaction_sale.go     # penyimpanan penjualan dan mutasi keluar
+internal/service/transaction_purchase.go # pembelian dan catatan pengeluaran
+internal/httpapi/router.go       # wiring route publik/terautentikasi saja
+internal/httpapi/transactions.go # endpoint transaksi dan pembatalan
+internal/httpapi/stock.go        # endpoint stok dan mutasi
+internal/httpapi/session.go      # profil sesi dan logout
+internal/httpapi/health.go       # liveness/readiness
+internal/httpapi/middleware.go   # CORS, timeout, request ID, logging, recovery
+internal/httpapi/                # endpoint fitur, DTO master, auth, JSON, error
 internal/apperror/               # error bisnis yang boleh ditampilkan ke client
+test/unit/                      # unit test black-box untuk API publik
+test/integration/               # integrasi HTTP/service dengan PostgreSQL
+test/architecture/              # tes batas layer (tanpa ORM di service/HTTP)
+test/testutil/                  # helper path fixture khusus pengujian
 docs/BELAJAR_GO.md               # penjelasan kode untuk belajar
 docs/API.md                      # endpoint dan contoh request
 compose.test.yaml               # PostgreSQL lokal khusus test
@@ -114,7 +133,28 @@ SQL struktur di `../database/` tetap menjadi sumber skema. Backend **tidak memak
 AutoMigrate** dan tidak membuat skema saat server mulai. Tidak ada salinan DDL kedua
 agar model aplikasi dan SQL mudah dibandingkan.
 
+Alur layer: **HTTP → DTO request → command service → repository → PostgreSQL**,
+lalu **hasil service → mapper DTO response → HTTP**. Handler tidak mengirim model
+database secara langsung. Service tidak mengakses `Store.DB`, tidak menyusun SQL,
+dan tidak menerima objek GORM. `Store.Transaction` menyediakan repository yang
+terikat ke transaksi yang sama untuk menjaga atomicity dan urutan lock.
+
+Kontrak JSON lama tetap dipertahankan. Tag pada command idempotent dan snapshot
+laporan tidak diubah agar request pending dan laporan lama masih dapat digunakan.
+Interface hanya ditambahkan pada batas yang digunakan, misalnya `masterRepository`
+untuk unit test service; bukan interface atau duplikasi entity untuk setiap tabel.
+
 ## Pengujian
+
+Gunakan `make fmt` untuk format Go dan `make fmt-check` untuk memeriksa format
+tanpa mengubah file. Peta lengkap dan alur transaksi ada di
+[`../README.md`](../README.md#backend).
+
+Test integrasi dan unit test black-box dipisahkan di [`test/`](test/README.md).
+Unit test fungsi private tetap berada di package asal dalam `internal/` agar
+enkapsulasi Go tidak perlu dibuka. `make test-unit` menjalankan pengujian tanpa DB;
+`make test-integration` khusus integrasi dan mewajibkan `TEST_DATABASE_URL`.
+`make test-cover` memakai `-coverpkg=./internal/...` untuk coverage lintas package.
 
 ```sh
 go test -race ./...
@@ -131,8 +171,8 @@ TEST_DATABASE_URL='postgresql://postgres:toko_test_only@127.0.0.1:55439/toko_tes
 docker compose -f compose.test.yaml down
 ```
 
-Test transaksi menyediakan fixture akun Supabase lama, sementara test registrasi
-memakai database mandiri tanpa schema `auth`. Keduanya mengaplikasikan SQL asli. Test menolak host selain localhost/127.0.0.1 dan database
+Test transaksi dan autentikasi memakai JWT lokal dan PostgreSQL mandiri.
+Keduanya mengaplikasikan SQL asli. Test menolak host selain localhost/127.0.0.1 dan database
 selain `toko_test`. Test memeriksa transaksi, rollback, tarif snapshot, flag metode,
 pembatalan, dua kasir memperebutkan stok terakhir, auth HTTP, dan izin pemilik/kasir.
 
@@ -149,7 +189,7 @@ pembatalan, dua kasir memperebutkan stok terakhir, auth HTTP, dan izin pemilik/k
 - CORS mengizinkan satu origin sesuai `CORS_ORIGIN`; default contoh port 3000.
 - Koneksi database backend memakai kredensial server yang dapat melewati RLS.
   Karena itu autentikasi dan pemeriksaan peran wajib melalui backend. Jangan kirim
-  `DATABASE_URL` ke frontend. Tabel melalui Supabase Data API tetap tertutup tanpa policy.
+  `DATABASE_URL` ke frontend.
 - Semua perubahan stok harus melalui backend ini agar mengikuti penguncian produk.
   Penulisan SQL manual atau backend lain yang tidak mengambil lock dapat melanggar invariant stok.
 - Transaksi mendukung `idempotency_key` UUID: request ulang dengan pengguna, key,
@@ -167,8 +207,7 @@ menjalankan backend versi ini. Database baru cukup memakai `schema.sql` terbaru.
 
 Referensi: [struktur modul Go](https://go.dev/doc/modules/layout),
 [koneksi GORM](https://gorm.io/docs/connecting_to_the_database.html),
-[transaksi GORM](https://gorm.io/docs/transactions.html),
-[koneksi Supabase](https://supabase.com/docs/guides/database/connecting-to-postgres).
+[transaksi GORM](https://gorm.io/docs/transactions.html).
 
 ## Ringkasan harian dan pengeluaran yang belum dirinci
 

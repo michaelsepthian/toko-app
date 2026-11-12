@@ -33,7 +33,7 @@ mengganti implementasi, misalnya mengganti penyedia pembayaran atau penyimpanan.
 
 ## 3. Struct dan pemetaan tabel
 
-Lihat `internal/model/models.go`:
+Lihat `internal/model/product.go`:
 
 ```go
 type Produk struct {
@@ -48,6 +48,10 @@ data yang berkaitan. `Base` di-embed sehingga field ID dan timestamp bisa dipaka
 ulang. Tag `json` menentukan nama saat encoding JSON; tag `gorm` mengatur pemetaan
 database. `TableName()` memastikan nama tabel sama dengan SQL, bukan pluralisasi
 otomatis GORM.
+
+Model dipisah per domain dalam satu package `model`. Respons HTTP **tidak**
+mengirim struct model ini langsung: `internal/dto/` memiliki struct respons dan
+mapper sendiri. Dengan begitu, kolom database baru tidak otomatis menjadi field API.
 
 Field seperti `*string` dapat bernilai `nil`, cocok untuk kolom SQL yang opsional.
 Field `string` biasa bernilai awal `""`; `bool` bernilai awal `false`.
@@ -89,14 +93,19 @@ menjadi teks SQL.
 struct input yang hanya berisi field yang boleh diatur client. Client tidak boleh
 mengirim `pengguna_id`, nomor struk, tarif, atau status transaksi.
 
-Data master memakai helper generik `resource[I, M]`: `I` berarti tipe input,
-`M` berarti tipe model. Ini mengurangi pengulangan CRUD sederhana. Logika transaksi
+Data master memakai helper generik `resource` dengan tipe request, command bisnis,
+model, dan respons. Handler meneruskan request ke `MasterService`, lalu memetakan
+hasilnya ke DTO. Ini mengurangi pengulangan CRUD sederhana. Logika transaksi
 tetap ditulis eksplisit karena aturan bisnisnya jauh berbeda dari CRUD master.
+
+Query berada di `internal/repository/`, bukan di handler atau service. Interface
+`masterRepository` didefinisikan di service sebagai pemakai; unit test dapat
+memasukkan repository in-memory tanpa membuat interface untuk setiap tabel.
 
 ## 6. Autentikasi dan otorisasi
 
-Middleware membaca Bearer token acak, menghitung SHA-256-nya, lalu mencari
-sesi yang belum kedaluwarsa dan pengguna yang masih aktif. Hanya hash token yang
+Middleware memvalidasi signature dan klaim Bearer JWT, lalu mencari
+sesi yang belum kedaluwarsa dan pengguna yang masih aktif. Hanya hash refresh token yang
 disimpan di database. Profil dimasukkan ke context request; middleware `owner`
 memeriksa peran sebelum operasi khusus pemilik.
 
@@ -104,16 +113,17 @@ Registrasi dan login berada di `service/registration.go`. Password dibuat menjad
 hash bcrypt, lalu diperiksa dengan `CompareHashAndPassword`. Username pertama
 menjadi pemilik secara atomik dengan advisory lock. Role tidak diterima dari
 frontend. Nama profil diisi dari username agar kompatibel dengan tabel yang ada.
-Akun baru tidak memerlukan Supabase Auth, email, atau kode setup.
+Akun memakai username dan password lokal. JWT berlaku 30 menit; cookie refresh
+HttpOnly merotasi token otomatis sampai batas sesi absolut 17 jam.
 
 ## 7. Service: alur bisnis penjualan
 
-Buka `internal/service/transaction.go`, fungsi `CreateTransaction`:
+Buka `internal/service/transaction.go`, fungsi `CreateSale` dan `CreatePurchase`:
 
 1. Validasi metode, jumlah item, nominal, dan produk duplikat.
-2. Mulai transaksi database menggunakan `db.Transaction`.
+2. Mulai unit of work menggunakan `Store.Transaction`; callback menerima repository.
 3. Kunci seluruh produk yang terlibat, urut berdasarkan ID.
-4. Baca harga jual dari database dan periksa stok terkini.
+4. Baca harga jual dari database dan validasi produk/metode pembayaran.
 5. Hitung subtotal detail, jumlahkan, lalu periksa diskon transaksi.
 6. Buat header `DRAFT`. Trigger SQL mengambil snapshot tarif dan menghitung biaya.
 7. Baca header kembali untuk memperoleh hasil trigger; validasi pembayaran cukup.
@@ -149,8 +159,9 @@ sama. Ia tidak melindungi dari SQL manual yang mengubah mutasi tanpa mengunci pr
   Query dapat dibatalkan saat client putus atau batas waktunya tercapai.
 - Receiver `(s *Service)` berarti fungsi adalah method milik `Service`, dengan
   pointer ke instance yang menyimpan dependency repository.
-- Return `(any, error)` mengembalikan hasil dan error. `any` dipakai di fungsi
-  bersama yang dapat menghasilkan `Penjualan` atau `Pembelian`.
+- Return `(model.Penjualan, error)` atau `(model.Pembelian, error)` mengembalikan
+  hasil bertipe tanpa type assertion. Adapter `(any, error)` hanya ada pada
+  fixture test lama, bukan pada service produksi.
 - Pola `if err != nil { return err }` membuat alur error eksplisit. Error bisnis
   memakai `apperror`; error database diterjemahkan ke HTTP pada satu tempat.
 - `nil` pada error berarti operasi berhasil. Error bukan exception; `panic`
@@ -158,7 +169,7 @@ sama. Ia tidak melindungi dari SQL manual yang mengubah mutasi tanpa mengunci pr
 
 ## 10. Membaca pengujian
 
-Mulai dari `validation_test.go`: table-driven test memeriksa beberapa input dan
+Mulai dari `test/unit/service/validation_test.go`: table-driven test memeriksa beberapa input dan
 hasil tanpa database. `http_test.go` memakai `httptest` untuk memeriksa JSON, auth,
 dan CORS tanpa menjalankan server sungguhan.
 
@@ -166,19 +177,30 @@ Registrasi sederhana langsung memanggil backend dengan username/password.
 Test memastikan dua registrasi bersamaan hanya menghasilkan satu pemilik, password
 salah ditolak, dan token tidak dapat digunakan lagi setelah logout/kedaluwarsa.
 
-`integration_test.go` menjalankan SQL asli dan GORM pada PostgreSQL lokal. Test
-konkurensi memakai dua goroutine yang dilepas bersamaan oleh channel. Hasil yang
-diinginkan: hanya satu transaksi berhasil ketika stok tersisa satu.
+`test/integration/service/integration_test.go` menjalankan SQL asli dan GORM pada PostgreSQL lokal. Test
+konkurensi memakai dua goroutine yang dilepas bersamaan oleh channel untuk
+memeriksa konsistensi transaksi dan mutasi. Penjualan tetap boleh membuat stok
+negatif; lock menjaga urutan perubahan, bukan melarang penjualan saat stok kurang.
 
 Latihan yang bisa dikerjakan berikutnya: tambah pencarian produk berdasarkan SKU,
 filter tanggal riwayat penjualan, laporan penjualan harian, lalu idempotency key
 untuk mencegah submit ganda ketika jaringan terputus. Setiap perubahan sebaiknya
 memiliki test yang memeriksa perilaku bisnis yang ingin dijamin.
 
+Test black-box dan integrasi ditempatkan di `test/`. Unit test yang mengakses
+fungsi private, seperti cache internal dan validasi command, tetap berada di
+package asal. Go tidak mengizinkan package lain mengakses fungsi private hanya
+karena file tersebut berakhiran `_test.go`. `go test ./...` tetap menemukan semua
+suite; gunakan `make test-unit` atau `make test-integration` untuk memilih jenisnya.
+
 
 ## Menyimpan banyak detail dengan batch insert GORM
 
-Go menggunakan slice untuk menampung banyak model. Pada `CreateTransaction`, detail transaksi dikumpulkan terlebih dahulu, lalu disimpan melalui `tx.Create(&details)`. GORM mengirim satu INSERT berisi banyak baris dan mengisi ID setiap detail dari PostgreSQL. Setelah itu, mutasi stok disusun dengan ID detail yang telah tersimpan lalu dikirim melalui `tx.Create(&movements)`.
+Go menggunakan slice untuk menampung banyak model. Pada helper penjualan dan
+pembelian, detail dikumpulkan dahulu lalu dikirim ke `CreateSaleDetails` atau
+`CreatePurchaseDetails` milik repository. Repository menjalankan satu batch INSERT
+dan mengisi ID detail dari PostgreSQL. Service menyusun mutasi menggunakan ID
+tersebut, lalu memanggil `CreateMovements` untuk batch INSERT berikutnya.
 
 Perulangan tetap digunakan untuk menyiapkan data di memori, tetapi tidak lagi menjalankan query untuk setiap item. Untuk N item, bagian penyimpanan detail dan mutasi berubah dari 2N INSERT menjadi 2 INSERT. Header, pembacaan data, dan perubahan status tetap memiliki query tersendiri. Jumlah item dibatasi 200 oleh validasi request.
 

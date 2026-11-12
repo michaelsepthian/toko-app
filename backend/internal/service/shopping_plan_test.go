@@ -46,7 +46,7 @@ func TestShoppingOptionalQuantity(t *testing.T) {
 
 func TestShoppingPermissions(t *testing.T) {
 	for _, role := range []string{"PEMILIK", "KASIR"} {
-		user := model.Pengguna{Base: model.Base{ID: 1}, Peran: role}
+		user := model.Pengguna{Base: model.Base{ID: 1}, Peran: model.Role(role)}
 		if err := shoppingPermission(user, false); err != nil {
 			t.Fatal(role, err)
 		}

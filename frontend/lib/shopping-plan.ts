@@ -19,11 +19,19 @@ export function shiftShoppingMonth(month: string, amount: number): string {
 }
 
 export function shoppingDateLabel(date: string, monthOnly = false): string {
-  return new Intl.DateTimeFormat('id-ID', { timeZone: 'UTC', ...(monthOnly ? { month: 'long', year: 'numeric' } as const : { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' } as const) }).format(new Date(`${date}T00:00:00Z`))
+  return new Intl.DateTimeFormat('id-ID', {
+    timeZone: 'UTC',
+    ...(monthOnly
+      ? ({ month: 'long', year: 'numeric' } as const)
+      : ({ weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' } as const)),
+  }).format(new Date(`${date}T00:00:00Z`))
 }
 
 export function shoppingQuantity(item: Pick<ShoppingItem, 'jumlah' | 'satuan'>): string | null {
   if (item.jumlah === null || Number(item.jumlah) <= 0) return null
-  const quantity = item.jumlah.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '').replace('.', ',')
+  const quantity = item.jumlah
+    .replace(/(\.\d*?)0+$/, '$1')
+    .replace(/\.$/, '')
+    .replace('.', ',')
   return [quantity, item.satuan].filter(Boolean).join(' ')
 }

@@ -41,6 +41,8 @@ services:
         condition: service_healthy
     environment:
       HTTP_ADDR: 0.0.0.0:8080
+      JWT_SECRET_BASE64: ${JWT_SECRET_BASE64:?Isi JWT_SECRET_BASE64 dengan kunci acak base64 minimal 32 byte}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
       PRODUCT_CACHE_TTL_SECONDS: ${PRODUCT_CACHE_TTL_SECONDS:-3600}
       DB_HOST: postgres

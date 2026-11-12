@@ -14,19 +14,23 @@ export async function sendCheckoutAttempt(
   makeID: () => string = createUUID,
 ) {
   const saved = storage.getItem(key)
-  const body: TransactionInput = saved ? JSON.parse(saved) : { ...input!, idempotency_key: makeID() }
+  const body: TransactionInput = saved
+    ? JSON.parse(saved)
+    : { ...input!, idempotency_key: makeID() }
   if (!body.items?.length) throw new Error('Tidak ada item transaksi.')
   storage.setItem(key, JSON.stringify(body))
   onPending(body)
   try {
     const result = await send(body)
-    storage.removeItem(key); onPending(null)
+    storage.removeItem(key)
+    onPending(null)
     return result
   } catch (err) {
     // Only a fresh request with a definitive rejection may be edited/replaced.
     // A retry of an ambiguous request keeps its identity until confirmed.
     if (!saved && err instanceof APIError && [400, 403, 404, 409].includes(err.status)) {
-      storage.removeItem(key); onPending(null)
+      storage.removeItem(key)
+      onPending(null)
     }
     throw err
   }

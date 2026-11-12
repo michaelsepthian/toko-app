@@ -15,7 +15,8 @@ test('rupiah paste and digit deletion keep the correct amount', () => {
   assert.equal(parseRupiahInput('Rp 15.000,50'), '15000.50')
   assert.equal(parseRupiahInput('15.00'), '1500')
   assert.equal(parseRupiahInput(',5'), '0.5')
-  for (const value of ['-15.000', '1e5', '15.000,123', 'abc']) assert.equal(parseRupiahInput(value), null)
+  for (const value of ['-15.000', '1e5', '15.000,123', 'abc'])
+    assert.equal(parseRupiahInput(value), null)
 })
 
 test('leading zeroes do not change an amount or remove decimal fractions', () => {

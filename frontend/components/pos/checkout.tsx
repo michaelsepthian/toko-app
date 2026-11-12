@@ -7,7 +7,15 @@ import { Button } from '@/components/ui/button'
 import { ResponsivePanel } from '@/components/ui/responsive-panel'
 import { BusyButton } from '@/components/ui/busy-button'
 import { api, message } from '@/lib/api'
-import type { CashPurchaseNote, CartLine, Data, Product, Transaction, TransactionInput, User } from '@/lib/types'
+import type {
+  CashPurchaseNote,
+  CartLine,
+  Data,
+  Product,
+  Transaction,
+  TransactionInput,
+  User,
+} from '@/lib/types'
 import { money, totals, validLines, validNumber } from '@/lib/pos'
 import { useCheckout } from '@/lib/use-checkout'
 import { ErrorBox, Field, inputClass, RupiahField } from './common'
@@ -17,12 +25,33 @@ import { CatalogStatus } from './catalog-status'
 import { ProductLoading } from './product-loading'
 import { MobileCartTabs, type MobileCartPanel } from './mobile-cart-tabs'
 
-export function Checkout({ loading = false, user, data, purchase = false, active, onSaved }: { loading?: boolean; user: User; data: Data; purchase?: boolean; active: boolean; onSaved: (record: Transaction, purchase: boolean, print: boolean) => Promise<void> }) {
-  const [cart, setCart] = useState<CartLine[]>([]); const [query, setQuery] = useState('')
+export function Checkout({
+  loading = false,
+  user,
+  data,
+  purchase = false,
+  active,
+  onSaved,
+}: {
+  loading?: boolean
+  user: User
+  data: Data
+  purchase?: boolean
+  active: boolean
+  onSaved: (record: Transaction, purchase: boolean, print: boolean) => Promise<void>
+}) {
+  const [cart, setCart] = useState<CartLine[]>([])
+  const [query, setQuery] = useState('')
   const [mobilePanel, setMobilePanel] = useState<MobileCartPanel>('products')
-  const [methodID, setMethodID] = useState(''); const [discount, setDiscount] = useState(''); const [paid, setPaid] = useState('')
-  const [sourceID, setSourceID] = useState(''); const [note, setNote] = useState(''); const [reference, setReference] = useState('')
-  const [print, setPrint] = useState(true); const [modal, setModal] = useState(false); const [error, setError] = useState('')
+  const [methodID, setMethodID] = useState('')
+  const [discount, setDiscount] = useState('')
+  const [paid, setPaid] = useState('')
+  const [sourceID, setSourceID] = useState('')
+  const [note, setNote] = useState('')
+  const [reference, setReference] = useState('')
+  const [print, setPrint] = useState(true)
+  const [modal, setModal] = useState(false)
+  const [error, setError] = useState('')
   const [purchaseNotes, setPurchaseNotes] = useState<CashPurchaseNote[]>([])
   const [purchaseNoteID, setPurchaseNoteID] = useState('')
   const [noteRevision, setNoteRevision] = useState(0)
@@ -32,97 +61,181 @@ export function Checkout({ loading = false, user, data, purchase = false, active
   const search = useRef<HTMLInputElement>(null)
   const dialogRef = useRef<HTMLElement>(null)
   const { submit, pending, busy } = useCheckout(user.id, purchase ? 'pembelian' : 'penjualan')
-  const linkedNote = purchaseNotes.find(row => String(row.id) === purchaseNoteID)
-  const methods = data.payments.filter(p => p.aktif && (purchase ? p.untuk_pembelian : p.untuk_penjualan))
-  const selected = methods.find(p => String(p.id) === methodID) ?? methods[0]
-  const valid = validLines(cart.map(line => ({ ...line, discount: line.discount || '0' })), discount || '0')
-  const preview = valid ? totals(cart, discount, selected, purchase) : totals([], '0', undefined, purchase)
+  const linkedNote = purchaseNotes.find((row) => String(row.id) === purchaseNoteID)
+  const methods = data.payments.filter(
+    (p) => p.aktif && (purchase ? p.untuk_pembelian : p.untuk_penjualan),
+  )
+  const selected = methods.find((p) => String(p.id) === methodID) ?? methods[0]
+  const valid = validLines(
+    cart.map((line) => ({ ...line, discount: line.discount || '0' })),
+    discount || '0',
+  )
+  const preview = valid
+    ? totals(cart, discount, selected, purchase)
+    : totals([], '0', undefined, purchase)
   const amountPaid = selected?.jenis === 'CASH' ? paid || '0' : preview.total.toFixed(2)
   const sufficient = validNumber(amountPaid, 2, true) && new Decimal(amountPaid).gte(preview.total)
   const catalogRef = useRef<HTMLDivElement>(null)
   const catalog = useProductCatalog({ q: query }, active, catalogRef)
   const visibleProducts = catalog.products
   loading = loading || catalog.loading
-  const stock = (id: number) => new Decimal(data.stocks.find(row => row.id === id)?.stok || 0)
+  const stock = (id: number) => new Decimal(data.stocks.find((row) => row.id === id)?.stok || 0)
   const locked = busy || Boolean(pending)
   const [lookupPending, setLookupPending] = useState(false)
   const lookupAllowed = useRef(false)
-  useLayoutEffect(() => { lookupAllowed.current = active && !locked && !modal })
+  useLayoutEffect(() => {
+    lookupAllowed.current = active && !locked && !modal
+  })
 
-  useEffect(() => { if (pending) setMobilePanel('cart') }, [pending])
+  useEffect(() => {
+    if (pending) setMobilePanel('cart')
+  }, [pending])
 
   useEffect(() => {
     if (!active || !purchase) return
     let current = true
-    setNotesLoading(true); setNotesError('')
+    setNotesLoading(true)
+    setNotesError('')
     async function load() {
       const rows: CashPurchaseNote[] = []
       for (let offset = 0; ; offset += 100) {
-        const page = await api<CashPurchaseNote[]>(`/catatan-belanja?status=TERBUKA&limit=100&offset=${offset}`)
+        const page = await api<CashPurchaseNote[]>(
+          `/catatan-belanja?status=TERBUKA&limit=100&offset=${offset}`,
+        )
         if (!current) return
         rows.push(...page)
         if (page.length < 100) break
       }
       setPurchaseNotes(rows)
     }
-    void load().catch(err => { if (current) setNotesError(message(err)) }).finally(() => { if (current) setNotesLoading(false) })
-    return () => { current = false }
+    void load()
+      .catch((err) => {
+        if (current) setNotesError(message(err))
+      })
+      .finally(() => {
+        if (current) setNotesLoading(false)
+      })
+    return () => {
+      current = false
+    }
   }, [active, purchase, noteRevision])
 
   function add(product: Product) {
     if (locked) return
     setError('')
-    setCart(current => {
-      const old = current.find(item => item.product.id === product.id)
+    setCart((current) => {
+      const old = current.find((item) => item.product.id === product.id)
       const quantity = new Decimal(old?.quantity || 0).plus(1)
-      if (old) return current.map(item => item.product.id === product.id ? { ...item, quantity: quantity.toString() } : item)
-      if (current.length >= 200) { setError('Maksimal 200 produk per transaksi.'); return current }
-      return [...current, { product, quantity: '1', price: purchase ? '' : product.harga_jual, discount: '' }]
+      if (old)
+        return current.map((item) =>
+          item.product.id === product.id ? { ...item, quantity: quantity.toString() } : item,
+        )
+      if (current.length >= 200) {
+        setError('Maksimal 200 produk per transaksi.')
+        return current
+      }
+      return [
+        ...current,
+        { product, quantity: '1', price: purchase ? '' : product.harga_jual, discount: '' },
+      ]
     })
-    setQuery(''); search.current?.focus()
+    setQuery('')
+    search.current?.focus()
   }
-  function update(id: number, patch: Partial<CartLine>) { if (!locked) setCart(current => current.map(item => item.product.id === id ? { ...item, ...patch } : item)) }
+  function update(id: number, patch: Partial<CartLine>) {
+    if (!locked)
+      setCart((current) =>
+        current.map((item) => (item.product.id === id ? { ...item, ...patch } : item)),
+      )
+  }
   async function scan(code: string) {
     if (locked || !code.trim() || searching.current) return
-    searching.current = true; setLookupPending(true)
+    searching.current = true
+    setLookupPending(true)
     try {
       const exact = await exactCatalogProduct(code)
       if (!lookupAllowed.current) return
-      if (exact) { add(exact); return }
-      setError(`Barcode/SKU ${code} tidak ditemukan. Pilih produk dari daftar atau daftarkan produknya.`)
-    } catch (err) { if (lookupAllowed.current) setError(`Gagal mencari produk: ${message(err)}`) }
-    finally { searching.current = false; setLookupPending(false) }
+      if (exact) {
+        add(exact)
+        return
+      }
+      setError(
+        `Barcode/SKU ${code} tidak ditemukan. Pilih produk dari daftar atau daftarkan produknya.`,
+      )
+    } catch (err) {
+      if (lookupAllowed.current) setError(`Gagal mencari produk: ${message(err)}`)
+    } finally {
+      searching.current = false
+      setLookupPending(false)
+    }
   }
   const searching = useRef(false)
   async function chooseProduct() {
     if (locked || searching.current) return
-    searching.current = true; setLookupPending(true)
+    searching.current = true
+    setLookupPending(true)
     try {
       if (query.trim()) {
         const exact = await exactCatalogProduct(query)
         if (!lookupAllowed.current) return
-        if (exact) { add(exact); return }
-        if (/^\d{5,}$/.test(query.trim())) { setError(`Barcode/SKU ${query} tidak ditemukan.`); return }
+        if (exact) {
+          add(exact)
+          return
+        }
+        if (/^\d{5,}$/.test(query.trim())) {
+          setError(`Barcode/SKU ${query} tidak ditemukan.`)
+          return
+        }
       }
       const products = await fetchProductPage(productQueryString({ q: query }))
       if (!lookupAllowed.current) return
       if (products.items.length === 1 && !products.has_next) add(products.items[0])
       else setError('Pilih produk dari hasil pencarian.')
-    } catch (err) { if (lookupAllowed.current) setError(`Gagal mencari produk: ${message(err)}`) }
-    finally { searching.current = false; setLookupPending(false) }
+    } catch (err) {
+      if (lookupAllowed.current) setError(`Gagal mencari produk: ${message(err)}`)
+    } finally {
+      searching.current = false
+      setLookupPending(false)
+    }
   }
   useEffect(() => {
     if (!active) return
-    let buffer = ''; let last = 0
+    let buffer = ''
+    let last = 0
     const keyboard = (event: KeyboardEvent) => {
-      if (event.key === 'F2') { event.preventDefault(); setMobilePanel('products'); requestAnimationFrame(() => search.current?.focus()); return }
-      if (event.key === 'F8' && valid && selected && !locked && !searching.current) { event.preventDefault(); setCompleted(null); setModal(true); return }
-      if (modal || locked || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return
+      if (event.key === 'F2') {
+        event.preventDefault()
+        setMobilePanel('products')
+        requestAnimationFrame(() => search.current?.focus())
+        return
+      }
+      if (event.key === 'F8' && valid && selected && !locked && !searching.current) {
+        event.preventDefault()
+        setCompleted(null)
+        setModal(true)
+        return
+      }
+      if (modal || locked || event.ctrlKey || event.metaKey || event.altKey || event.isComposing)
+        return
       const target = event.target as HTMLElement
-      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target.isContentEditable) return
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        target.isContentEditable
+      )
+        return
       const time = performance.now()
-      if (event.key === 'Enter' && buffer.length >= 4 && time - last < 150) { event.preventDefault(); void scan(buffer); buffer = ''; return }
-      if (event.key.length === 1) { buffer = time - last < 150 ? buffer + event.key : event.key; last = time }
+      if (event.key === 'Enter' && buffer.length >= 4 && time - last < 150) {
+        event.preventDefault()
+        void scan(buffer)
+        buffer = ''
+        return
+      }
+      if (event.key.length === 1) {
+        buffer = time - last < 150 ? buffer + event.key : event.key
+        last = time
+      }
     }
     window.addEventListener('keydown', keyboard)
     return () => window.removeEventListener('keydown', keyboard)
@@ -130,45 +243,476 @@ export function Checkout({ loading = false, user, data, purchase = false, active
 
   async function save(retry = false) {
     setError('')
-    if (!retry && (!valid || !selected || (!purchase && !sufficient))) { setError('Periksa jumlah, harga, diskon, metode, dan pembayaran.'); return }
-    if (!retry && purchaseNoteID && (!linkedNote || !preview.total.eq(linkedNote.total))) { setError('Total rincian harus sama dengan catatan belanja.'); return }
-    const body: TransactionInput = { metode_pembayaran_id: selected?.id ?? 0, diskon_transaksi: discount || '0',
-      nomor_referensi: reference || null, items: cart.map(line => ({ produk_id: line.product.id, jumlah: line.quantity, diskon: line.discount || '0', ...(purchase ? { harga_beli: line.price } : {}) })),
-      ...(purchase ? { ...(purchaseNoteID ? { catatan_belanja_id: Number(purchaseNoteID) } : {}), sumber_pembelian_id: sourceID ? Number(sourceID) : null, nomor_nota: note || null } : { jumlah_dibayar: amountPaid }) }
+    if (!retry && (!valid || !selected || (!purchase && !sufficient))) {
+      setError('Periksa jumlah, harga, diskon, metode, dan pembayaran.')
+      return
+    }
+    if (!retry && purchaseNoteID && (!linkedNote || !preview.total.eq(linkedNote.total))) {
+      setError('Total rincian harus sama dengan catatan belanja.')
+      return
+    }
+    const body: TransactionInput = {
+      metode_pembayaran_id: selected?.id ?? 0,
+      diskon_transaksi: discount || '0',
+      nomor_referensi: reference || null,
+      items: cart.map((line) => ({
+        produk_id: line.product.id,
+        jumlah: line.quantity,
+        diskon: line.discount || '0',
+        ...(purchase ? { harga_beli: line.price } : {}),
+      })),
+      ...(purchase
+        ? {
+            ...(purchaseNoteID ? { catatan_belanja_id: Number(purchaseNoteID) } : {}),
+            sumber_pembelian_id: sourceID ? Number(sourceID) : null,
+            nomor_nota: note || null,
+          }
+        : { jumlah_dibayar: amountPaid }),
+    }
     try {
       const record = await submit(retry ? undefined : body)
       if (!record) return
-      setCart([]); setPaid(''); setDiscount(''); setNote(''); setReference(''); setPurchaseNoteID(''); setNoteRevision(value => value + 1)
-      setCompleted(record); setModal(true)
+      setCart([])
+      setPaid('')
+      setDiscount('')
+      setNote('')
+      setReference('')
+      setPurchaseNoteID('')
+      setNoteRevision((value) => value + 1)
+      setCompleted(record)
+      setModal(true)
       await onSaved(record, purchase, print)
-    } catch (err) { setError(message(err)) }
+    } catch (err) {
+      setError(message(err))
+    }
   }
-  return <div hidden={!active} className="purchase-page" data-mobile-panel={mobilePanel}>
-    <MobileCartTabs prefix="purchase" label="Bagian pembelian" panel={mobilePanel} count={cart.length} onChange={setMobilePanel} />
-    {error && <div className="mx-3 mt-3"><ErrorBox>{error}</ErrorBox></div>}
-    <div className="purchase-layout mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[minmax(480px,1fr)_minmax(450px,1fr)]">
-      <section id="purchase-panel-cart" role="tabpanel" aria-labelledby="purchase-tab-cart" className="purchase-cart rounded-3xl border bg-card shadow-sm">
-        <div className="purchase-heading flex items-center justify-between border-b p-5"><div><h1 className="text-xl font-bold">{purchase ? 'Catat Pembelian Produk' : 'Daftar Belanja'}</h1><p className="text-sm text-muted-foreground">{purchase ? 'Barang masuk dan harga beli aktual' : `${cart.length} jenis produk · F8 untuk bayar`}</p></div><Button variant="ghost" disabled={locked} onClick={() => setCart([])}><Trash2 />Kosongkan</Button></div>
-        <div className="purchase-cart-body space-y-3 p-4">{pending && <div role="status" className="rounded-xl border border-amber-400 p-4"><p>Hasil transaksi sebelumnya belum dikonfirmasi. Lanjutkan request yang sama agar tidak tercatat dua kali.</p><Button className="mt-2" disabled={busy} onClick={() => void save(true)}>{busy ? 'Memeriksa…' : 'Periksa / lanjutkan transaksi'}</Button></div>}
-          {purchase && <div className="space-y-2 rounded-xl border bg-muted/50 p-3"><label className="text-sm font-semibold">Lengkapi catatan belanja<SearchSelect aria-label="Lengkapi catatan belanja" className={inputClass} disabled={locked || notesLoading} value={purchaseNoteID} onValueChange={setPurchaseNoteID}><option value="">Pembelian baru (tanpa catatan sebelumnya)</option>{purchaseNotes.map(row => <option key={row.id} value={row.id}>#{row.id} · {row.tanggal} · {money(row.total)} {row.catatan}</option>)}</SearchSelect></label>{notesLoading && <p className="text-xs">Memuat catatan belanja…</p>}{notesError && <div className="text-sm text-destructive">{notesError}<Button variant="ghost" onClick={() => setNoteRevision(value => value + 1)}>Muat ulang catatan</Button></div>}{linkedNote && <p className="text-sm text-primary">Uang keluar sudah dicatat pada {linkedNote.tanggal}, sebesar {money(linkedNote.total)}. Isi rincian dengan total yang sama; pengeluaran ini tidak dihitung lagi.</p>}</div>}
-          {purchase && <div className="grid gap-3 sm:grid-cols-2"><div className="text-sm font-semibold"><span>Tempat beli / sales</span><SearchSelect className={inputClass} disabled={locked} value={sourceID} onValueChange={value => setSourceID(value)} aria-label="Tempat beli / sales"><option value="">Tidak dicatat</option>{data.sources.filter(s => s.aktif).map(s => <option key={s.id} value={s.id}>{s.nama} ({s.jenis})</option>)}</SearchSelect></div><Field label="Nomor nota (opsional)" value={note} onChange={setNote} disabled={locked} /></div>}
-          <fieldset disabled={locked} className="space-y-2">
-            {!cart.length && <div className="py-14 text-center text-muted-foreground"><ShoppingBasket className="mx-auto mb-3 size-10" />{purchase ? 'Pilih atau scan barang yang dibeli.' : 'Cari atau scan produk untuk mulai berjualan.'}</div>}
-            {cart.map(item => <article key={item.product.id} className="purchase-line rounded-2xl border bg-background p-3"><div className="flex items-center justify-between gap-2"><div><h2 className="font-bold">{item.product.nama}</h2><p className="text-xs text-muted-foreground">{item.product.sku} · stok {stock(item.product.id).toString()}</p></div><Button variant="ghost" aria-label={`Hapus ${item.product.nama}`} onClick={() => setCart(current => current.filter(line => line.product.id !== item.product.id))}><Trash2 /></Button></div><div className="purchase-line-fields mt-3 grid grid-cols-2 gap-3"><div><span className="text-xs font-semibold">Jumlah</span><div className="purchase-quantity flex gap-1"><Button variant="outline" aria-label={`Kurangi ${item.product.nama}`} onClick={() => { const n = new Decimal(item.quantity || 0).minus(1); if (n.gt(0)) update(item.product.id, { quantity: n.toString() }) }}><Minus /></Button><input aria-label={`Jumlah ${item.product.nama}`} className={`${inputClass} min-w-0 text-center`} inputMode="decimal" value={item.quantity} onChange={e => { if (/^(\d+(?:\.\d*)?)?$/.test(e.target.value)) update(item.product.id, { quantity: e.target.value }) }} /><Button variant="outline" aria-label={`Tambah ${item.product.nama}`} onClick={() => add(item.product)}><Plus /></Button></div></div>{purchase ? <RupiahField label={`Harga beli ${item.product.nama}`} value={item.price} onChange={price => update(item.product.id, { price })} /> : <div className="self-end py-3 text-right font-semibold">{money(item.price)} / {data.units.find(u => u.id === item.product.satuan_id)?.nama ?? 'unit'}</div>}<RupiahField label={`Diskon ${item.product.nama}`} value={item.discount} onChange={discount => update(item.product.id, { discount })} /></div></article>)}
-          </fieldset>
-          <div className="grid gap-3 sm:grid-cols-2"><RupiahField label="Diskon transaksi" value={discount} onChange={setDiscount} disabled={locked} /><div className="text-sm font-semibold"><span>Metode pembayaran</span><SearchSelect aria-label="Metode pembayaran" className={inputClass} disabled={locked} value={selected?.id ?? ''} onValueChange={value => setMethodID(value)}>{!methods.length && <option value="">Belum ada metode aktif</option>}{methods.map(p => <option key={p.id} value={p.id}>{p.nama}</option>)}</SearchSelect></div></div>
-          <dl className="purchase-totals space-y-2 rounded-2xl bg-muted p-4 text-sm"><div className="flex justify-between"><dt>Subtotal</dt><dd>{money(preview.subtotal)}</dd></div><div className="flex justify-between"><dt>Biaya metode {selected?.penanggung_biaya === 'TOKO' && !purchase ? '(ditanggung toko)' : ''}</dt><dd>{money(preview.fee)}</dd></div><div className="flex justify-between text-2xl font-black"><dt>{purchase ? 'Total pembelian' : 'Total bayar'}</dt><dd>{money(preview.total)}</dd></div></dl>
-          {!purchase && <label className="flex items-center gap-2 py-2"><input type="checkbox" checked={print} onChange={e => setPrint(e.target.checked)} />Cetak struk setelah pembayaran</label>}
-          <Button className="h-14 w-full text-lg" disabled={!valid || !selected || locked || lookupPending} onClick={() => { setCompleted(null); setModal(true) }}><WalletCards />{lookupPending ? 'Mencari produk…' : purchase ? 'Simpan Pembelian' : 'Bayar'} · F8</Button>
+  return (
+    <div hidden={!active} className="purchase-page" data-mobile-panel={mobilePanel}>
+      <MobileCartTabs
+        prefix="purchase"
+        label="Bagian pembelian"
+        panel={mobilePanel}
+        count={cart.length}
+        onChange={setMobilePanel}
+      />
+      {error && (
+        <div className="mx-3 mt-3">
+          <ErrorBox>{error}</ErrorBox>
         </div>
-      </section>
-      <section id="purchase-panel-products" role="tabpanel" aria-labelledby="purchase-tab-products" className="purchase-catalog h-fit rounded-3xl border bg-card shadow-sm"><div className="purchase-search-area border-b p-4"><h2 className="text-xl font-bold">Pilih Produk</h2><form className="mt-3 flex items-center gap-3 rounded-2xl border-2 border-primary/30 px-4" onSubmit={e => { e.preventDefault(); void chooseProduct() }}><Search /><input ref={search} aria-label={purchase ? 'Cari atau scan produk pembelian' : 'Cari atau scan produk penjualan'} className="h-14 min-w-0 flex-1 bg-transparent outline-none" value={query} disabled={locked} onChange={e => setQuery(e.target.value)} placeholder="Nama, SKU, atau scan barcode + Enter" /><Barcode /></form><p className="mt-2 text-xs text-muted-foreground">F2 fokus pencarian · Scanner USB mode keyboard + Enter</p></div><div ref={catalogRef} className="purchase-products grid max-h-[70vh] grid-cols-1 gap-3 overflow-y-auto p-4 sm:grid-cols-2" aria-busy={loading}>
-        {loading && <ProductLoading />}
-        {(active && !loading ? visibleProducts : []).map(product => <button key={product.id} disabled={locked} onClick={() => add(product)} className="flex min-h-36 flex-col rounded-2xl border bg-background p-4 text-left transition hover:border-primary hover:bg-primary/5 disabled:opacity-40"><span className="text-xs text-muted-foreground">{data.categories.find(c => c.id === product.kategori_id)?.nama} · {product.sku}</span><span className="mt-2 text-lg font-bold">{product.nama}</span><span className="mt-auto pt-3 text-xl font-bold">{money(product.harga_jual)}</span><span className="text-sm text-muted-foreground">Stok {stock(product.id).toString()}</span></button>)}
-        <CatalogStatus catalog={catalog} />
-        {!loading && !catalog.error && !visibleProducts.length && <p className="col-span-full py-10 text-center text-muted-foreground">Belum ada produk yang cocok. Pemilik dapat menambahnya dari menu Produk.</p>}
-      </div></section>
+      )}
+      <div className="purchase-layout mx-auto grid max-w-[1600px] gap-4 p-4 xl:grid-cols-[minmax(480px,1fr)_minmax(450px,1fr)]">
+        <section
+          id="purchase-panel-cart"
+          role="tabpanel"
+          aria-labelledby="purchase-tab-cart"
+          className="purchase-cart rounded-3xl border bg-card shadow-sm"
+        >
+          <div className="purchase-heading flex items-center justify-between border-b p-5">
+            <div>
+              <h1 className="text-xl font-bold">
+                {purchase ? 'Catat Pembelian Produk' : 'Daftar Belanja'}
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                {purchase
+                  ? 'Barang masuk dan harga beli aktual'
+                  : `${cart.length} jenis produk · F8 untuk bayar`}
+              </p>
+            </div>
+            <Button variant="ghost" disabled={locked} onClick={() => setCart([])}>
+              <Trash2 />
+              Kosongkan
+            </Button>
+          </div>
+          <div className="purchase-cart-body space-y-3 p-4">
+            {pending && (
+              <div role="status" className="rounded-xl border border-amber-400 p-4">
+                <p>
+                  Hasil transaksi sebelumnya belum dikonfirmasi. Lanjutkan request yang sama agar
+                  tidak tercatat dua kali.
+                </p>
+                <Button className="mt-2" disabled={busy} onClick={() => void save(true)}>
+                  {busy ? 'Memeriksa…' : 'Periksa / lanjutkan transaksi'}
+                </Button>
+              </div>
+            )}
+            {purchase && (
+              <div className="space-y-2 rounded-xl border bg-muted/50 p-3">
+                <label className="text-sm font-semibold">
+                  Lengkapi catatan belanja
+                  <SearchSelect
+                    aria-label="Lengkapi catatan belanja"
+                    className={inputClass}
+                    disabled={locked || notesLoading}
+                    value={purchaseNoteID}
+                    onValueChange={setPurchaseNoteID}
+                  >
+                    <option value="">Pembelian baru (tanpa catatan sebelumnya)</option>
+                    {purchaseNotes.map((row) => (
+                      <option key={row.id} value={row.id}>
+                        #{row.id} · {row.tanggal} · {money(row.total)} {row.catatan}
+                      </option>
+                    ))}
+                  </SearchSelect>
+                </label>
+                {notesLoading && <p className="text-xs">Memuat catatan belanja…</p>}
+                {notesError && (
+                  <div className="text-sm text-destructive">
+                    {notesError}
+                    <Button variant="ghost" onClick={() => setNoteRevision((value) => value + 1)}>
+                      Muat ulang catatan
+                    </Button>
+                  </div>
+                )}
+                {linkedNote && (
+                  <p className="text-sm text-primary">
+                    Uang keluar sudah dicatat pada {linkedNote.tanggal}, sebesar{' '}
+                    {money(linkedNote.total)}. Isi rincian dengan total yang sama; pengeluaran ini
+                    tidak dihitung lagi.
+                  </p>
+                )}
+              </div>
+            )}
+            {purchase && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="text-sm font-semibold">
+                  <span>Tempat beli / sales</span>
+                  <SearchSelect
+                    className={inputClass}
+                    disabled={locked}
+                    value={sourceID}
+                    onValueChange={(value) => setSourceID(value)}
+                    aria-label="Tempat beli / sales"
+                  >
+                    <option value="">Tidak dicatat</option>
+                    {data.sources
+                      .filter((s) => s.aktif)
+                      .map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.nama} ({s.jenis})
+                        </option>
+                      ))}
+                  </SearchSelect>
+                </div>
+                <Field
+                  label="Nomor nota (opsional)"
+                  value={note}
+                  onChange={setNote}
+                  disabled={locked}
+                />
+              </div>
+            )}
+            <fieldset disabled={locked} className="space-y-2">
+              {!cart.length && (
+                <div className="py-14 text-center text-muted-foreground">
+                  <ShoppingBasket className="mx-auto mb-3 size-10" />
+                  {purchase
+                    ? 'Pilih atau scan barang yang dibeli.'
+                    : 'Cari atau scan produk untuk mulai berjualan.'}
+                </div>
+              )}
+              {cart.map((item) => (
+                <article
+                  key={item.product.id}
+                  className="purchase-line rounded-2xl border bg-background p-3"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <h2 className="font-bold">{item.product.nama}</h2>
+                      <p className="text-xs text-muted-foreground">
+                        {item.product.sku} · stok {stock(item.product.id).toString()}
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      aria-label={`Hapus ${item.product.nama}`}
+                      onClick={() =>
+                        setCart((current) =>
+                          current.filter((line) => line.product.id !== item.product.id),
+                        )
+                      }
+                    >
+                      <Trash2 />
+                    </Button>
+                  </div>
+                  <div className="purchase-line-fields mt-3 grid grid-cols-2 gap-3">
+                    <div>
+                      <span className="text-xs font-semibold">Jumlah</span>
+                      <div className="purchase-quantity flex gap-1">
+                        <Button
+                          variant="outline"
+                          aria-label={`Kurangi ${item.product.nama}`}
+                          onClick={() => {
+                            const n = new Decimal(item.quantity || 0).minus(1)
+                            if (n.gt(0)) update(item.product.id, { quantity: n.toString() })
+                          }}
+                        >
+                          <Minus />
+                        </Button>
+                        <input
+                          aria-label={`Jumlah ${item.product.nama}`}
+                          className={`${inputClass} min-w-0 text-center`}
+                          inputMode="decimal"
+                          value={item.quantity}
+                          onChange={(e) => {
+                            if (/^(\d+(?:\.\d*)?)?$/.test(e.target.value))
+                              update(item.product.id, { quantity: e.target.value })
+                          }}
+                        />
+                        <Button
+                          variant="outline"
+                          aria-label={`Tambah ${item.product.nama}`}
+                          onClick={() => add(item.product)}
+                        >
+                          <Plus />
+                        </Button>
+                      </div>
+                    </div>
+                    {purchase ? (
+                      <RupiahField
+                        label={`Harga beli ${item.product.nama}`}
+                        value={item.price}
+                        onChange={(price) => update(item.product.id, { price })}
+                      />
+                    ) : (
+                      <div className="self-end py-3 text-right font-semibold">
+                        {money(item.price)} /{' '}
+                        {data.units.find((u) => u.id === item.product.satuan_id)?.nama ?? 'unit'}
+                      </div>
+                    )}
+                    <RupiahField
+                      label={`Diskon ${item.product.nama}`}
+                      value={item.discount}
+                      onChange={(discount) => update(item.product.id, { discount })}
+                    />
+                  </div>
+                </article>
+              ))}
+            </fieldset>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <RupiahField
+                label="Diskon transaksi"
+                value={discount}
+                onChange={setDiscount}
+                disabled={locked}
+              />
+              <div className="text-sm font-semibold">
+                <span>Metode pembayaran</span>
+                <SearchSelect
+                  aria-label="Metode pembayaran"
+                  className={inputClass}
+                  disabled={locked}
+                  value={selected?.id ?? ''}
+                  onValueChange={(value) => setMethodID(value)}
+                >
+                  {!methods.length && <option value="">Belum ada metode aktif</option>}
+                  {methods.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.nama}
+                    </option>
+                  ))}
+                </SearchSelect>
+              </div>
+            </div>
+            <dl className="purchase-totals space-y-2 rounded-2xl bg-muted p-4 text-sm">
+              <div className="flex justify-between">
+                <dt>Subtotal</dt>
+                <dd>{money(preview.subtotal)}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt>
+                  Biaya metode{' '}
+                  {selected?.penanggung_biaya === 'TOKO' && !purchase ? '(ditanggung toko)' : ''}
+                </dt>
+                <dd>{money(preview.fee)}</dd>
+              </div>
+              <div className="flex justify-between text-2xl font-black">
+                <dt>{purchase ? 'Total pembelian' : 'Total bayar'}</dt>
+                <dd>{money(preview.total)}</dd>
+              </div>
+            </dl>
+            {!purchase && (
+              <label className="flex items-center gap-2 py-2">
+                <input
+                  type="checkbox"
+                  checked={print}
+                  onChange={(e) => setPrint(e.target.checked)}
+                />
+                Cetak struk setelah pembayaran
+              </label>
+            )}
+            <Button
+              className="h-14 w-full text-lg"
+              disabled={!valid || !selected || locked || lookupPending}
+              onClick={() => {
+                setCompleted(null)
+                setModal(true)
+              }}
+            >
+              <WalletCards />
+              {lookupPending ? 'Mencari produk…' : purchase ? 'Simpan Pembelian' : 'Bayar'} · F8
+            </Button>
+          </div>
+        </section>
+        <section
+          id="purchase-panel-products"
+          role="tabpanel"
+          aria-labelledby="purchase-tab-products"
+          className="purchase-catalog h-fit rounded-3xl border bg-card shadow-sm"
+        >
+          <div className="purchase-search-area border-b p-4">
+            <h2 className="text-xl font-bold">Pilih Produk</h2>
+            <form
+              className="mt-3 flex items-center gap-3 rounded-2xl border-2 border-primary/30 px-4"
+              onSubmit={(e) => {
+                e.preventDefault()
+                void chooseProduct()
+              }}
+            >
+              <Search />
+              <input
+                ref={search}
+                aria-label={
+                  purchase ? 'Cari atau scan produk pembelian' : 'Cari atau scan produk penjualan'
+                }
+                className="h-14 min-w-0 flex-1 bg-transparent outline-none"
+                value={query}
+                disabled={locked}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Nama, SKU, atau scan barcode + Enter"
+              />
+              <Barcode />
+            </form>
+            <p className="mt-2 text-xs text-muted-foreground">
+              F2 fokus pencarian · Scanner USB mode keyboard + Enter
+            </p>
+          </div>
+          <div
+            ref={catalogRef}
+            className="purchase-products grid max-h-[70vh] grid-cols-1 gap-3 overflow-y-auto p-4 sm:grid-cols-2"
+            aria-busy={loading}
+          >
+            {loading && <ProductLoading />}
+            {(active && !loading ? visibleProducts : []).map((product) => (
+              <button
+                key={product.id}
+                disabled={locked}
+                onClick={() => add(product)}
+                className="flex min-h-36 flex-col rounded-2xl border bg-background p-4 text-left transition hover:border-primary hover:bg-primary/5 disabled:opacity-40"
+              >
+                <span className="text-xs text-muted-foreground">
+                  {data.categories.find((c) => c.id === product.kategori_id)?.nama} · {product.sku}
+                </span>
+                <span className="mt-2 text-lg font-bold">{product.nama}</span>
+                <span className="mt-auto pt-3 text-xl font-bold">{money(product.harga_jual)}</span>
+                <span className="text-sm text-muted-foreground">
+                  Stok {stock(product.id).toString()}
+                </span>
+              </button>
+            ))}
+            <CatalogStatus catalog={catalog} />
+            {!loading && !catalog.error && !visibleProducts.length && (
+              <p className="col-span-full py-10 text-center text-muted-foreground">
+                Belum ada produk yang cocok. Pemilik dapat menambahnya dari menu Produk.
+              </p>
+            )}
+          </div>
+        </section>
+      </div>
+      <ResponsivePanel
+        open={modal && active}
+        title={
+          completed
+            ? 'Transaksi tersimpan'
+            : purchase
+              ? 'Konfirmasi Pembelian'
+              : 'Konfirmasi Pembayaran'
+        }
+        dirty={false}
+        busy={busy}
+        onClose={() => setModal(false)}
+      >
+        <section
+          ref={dialogRef}
+          tabIndex={-1}
+          onKeyDown={(e) => {
+            if (
+              e.key === 'Enter' &&
+              e.target instanceof HTMLInputElement &&
+              !locked &&
+              !completed &&
+              (purchase || sufficient)
+            ) {
+              e.preventDefault()
+              void save()
+            }
+          }}
+          className="space-y-4"
+        >
+          <ErrorBox>{error}</ErrorBox>
+          {completed ? (
+            <>
+              <p className="break-all font-mono text-sm">
+                {completed.nomor} · {completed.status}
+              </p>
+              <p className="text-3xl font-black">
+                {money(completed.total_tagihan ?? completed.total_pembayaran ?? '0')}
+              </p>
+              {!purchase && (
+                <p>
+                  Kembalian: <strong>{money(completed.kembalian ?? '0')}</strong>
+                </p>
+              )}
+              <Button
+                className="w-full"
+                onClick={() => {
+                  setModal(false)
+                  setCompleted(null)
+                }}
+              >
+                Selesai
+              </Button>
+            </>
+          ) : (
+            <>
+              <p className="text-4xl font-black">{money(preview.total)}</p>
+              <p>{selected?.nama}</p>
+              {!purchase && selected?.jenis === 'CASH' && (
+                <RupiahField
+                  label="Uang diterima"
+                  value={paid}
+                  onChange={setPaid}
+                  disabled={locked}
+                />
+              )}
+              {!purchase && selected?.jenis !== 'CASH' && (
+                <p className="text-sm text-muted-foreground">
+                  Pastikan pembayaran pada terminal/QRIS sudah berhasil. Aplikasi hanya mencatat
+                  pembayaran.
+                </p>
+              )}
+              <Field
+                label="Referensi pembayaran (opsional)"
+                value={reference}
+                onChange={setReference}
+                disabled={locked}
+              />
+              <div className="flex gap-3">
+                <Button variant="outline" disabled={busy} onClick={() => setModal(false)}>
+                  Tutup
+                </Button>
+                <BusyButton
+                  className="flex-1"
+                  busy={busy}
+                  disabled={locked || (!purchase && !sufficient)}
+                  onClick={() => void save()}
+                >
+                  Konfirmasi & Simpan
+                </BusyButton>
+              </div>
+            </>
+          )}
+        </section>
+      </ResponsivePanel>
     </div>
-    <ResponsivePanel open={modal && active} title={completed ? 'Transaksi tersimpan' : purchase ? 'Konfirmasi Pembelian' : 'Konfirmasi Pembayaran'} dirty={false} busy={busy} onClose={() => setModal(false)}><section ref={dialogRef} tabIndex={-1} onKeyDown={e => { if (e.key === 'Enter' && e.target instanceof HTMLInputElement && !locked && !completed && (purchase || sufficient)) { e.preventDefault(); void save() } }} className="space-y-4"><ErrorBox>{error}</ErrorBox>{completed ? <><p className="break-all font-mono text-sm">{completed.nomor} · {completed.status}</p><p className="text-3xl font-black">{money(completed.total_tagihan ?? completed.total_pembayaran ?? '0')}</p>{!purchase && <p>Kembalian: <strong>{money(completed.kembalian ?? '0')}</strong></p>}<Button className="w-full" onClick={() => { setModal(false); setCompleted(null) }}>Selesai</Button></> : <><p className="text-4xl font-black">{money(preview.total)}</p><p>{selected?.nama}</p>{!purchase && selected?.jenis === 'CASH' && <RupiahField label="Uang diterima" value={paid} onChange={setPaid} disabled={locked} />}{!purchase && selected?.jenis !== 'CASH' && <p className="text-sm text-muted-foreground">Pastikan pembayaran pada terminal/QRIS sudah berhasil. Aplikasi hanya mencatat pembayaran.</p>}<Field label="Referensi pembayaran (opsional)" value={reference} onChange={setReference} disabled={locked} /><div className="flex gap-3"><Button variant="outline" disabled={busy} onClick={() => setModal(false)}>Tutup</Button><BusyButton className="flex-1" busy={busy} disabled={locked || (!purchase && !sufficient)} onClick={() => void save()}>Konfirmasi & Simpan</BusyButton></div></>}</section></ResponsivePanel>
-  </div>
+  )
 }

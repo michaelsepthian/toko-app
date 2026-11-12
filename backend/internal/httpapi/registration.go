@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"toko/backend/internal/apperror"
+	"toko/backend/internal/config"
+	"toko/backend/internal/dto"
 	"toko/backend/internal/service"
 )
 
@@ -43,7 +45,7 @@ func authLimit(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func registerSetup(mux *http.ServeMux, svc *service.Service, auth *Auth) {
+func registerSetup(mux *http.ServeMux, svc *service.Service, c config.Config) {
 	mux.HandleFunc("GET /api/v1/setup", func(w http.ResponseWriter, r *http.Request) {
 		initialized, err := svc.SetupInitialized(r.Context())
 		if err != nil {
@@ -54,10 +56,7 @@ func registerSetup(mux *http.ServeMux, svc *service.Service, auth *Auth) {
 	})
 	for _, action := range []string{"register", "login"} {
 		mux.HandleFunc("POST /api/v1/auth/"+action, authLimit(func(w http.ResponseWriter, r *http.Request) {
-			var input struct {
-				Username string `json:"username"`
-				Password string `json:"password"`
-			}
+			var input dto.LoginRequest
 			if err := decode(w, r, &input); err != nil {
 				fail(w, err)
 				return
@@ -67,7 +66,7 @@ func registerSetup(mux *http.ServeMux, svc *service.Service, auth *Auth) {
 			if action == "register" {
 				result, err = svc.RegisterInitialOwner(r.Context(), input.Username, input.Password)
 			} else {
-				result, err = svc.Login(r.Context(), input.Username, input.Password, auth.VerifyLegacyPassword)
+				result, err = svc.Login(r.Context(), input.Username, input.Password)
 			}
 			if err != nil {
 				fail(w, err)
@@ -77,7 +76,14 @@ func registerSetup(mux *http.ServeMux, svc *service.Service, auth *Auth) {
 			if action == "register" {
 				status = 201
 			}
-			respond(w, status, result)
+			if previous, e := r.Cookie(refreshCookieName); e == nil {
+				if e := svc.Logout(r.Context(), previous.Value); e != nil {
+					fail(w, e)
+					return
+				}
+			}
+			setRefreshCookie(w, result.RefreshToken, result.SessionExpiresAt, c.SessionCookieSecure)
+			respond(w, status, dto.Login(result))
 		}))
 	}
 }

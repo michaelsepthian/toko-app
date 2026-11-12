@@ -2,15 +2,14 @@ package httpapi
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 	"sync"
 	"time"
 
-	"github.com/shopspring/decimal"
-	"gorm.io/gorm"
+	"toko/backend/internal/dto"
 	"toko/backend/internal/model"
+	"toko/backend/internal/service"
 )
 
 type masterData struct {
@@ -56,21 +55,12 @@ func (data masterData) forUser(owner bool) masterData {
 	}
 	return data
 }
-func registerCatalog(mux *http.ServeMux, db *gorm.DB, productCacheTTL time.Duration) *catalogCache {
+func registerCatalog(mux *http.ServeMux, svc *service.Service, productCacheTTL time.Duration) *catalogCache {
 	cache := newCatalogCache(func(ctx context.Context) (masterData, error) {
-		data := masterData{Categories: []model.Kategori{}, Units: []model.Satuan{}, Payments: []model.MetodePembayaran{}, Sources: []model.SumberPembelian{}}
-		// Master kecil saja; produk dibaca per halaman melalui /katalog/produk.
-		err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			for _, rows := range []any{&data.Categories, &data.Units, &data.Payments, &data.Sources} {
-				if err := tx.Order("id DESC").Find(rows).Error; err != nil {
-					return err
-				}
-			}
-			return nil
-		}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
-		return data, err
+		data, err := svc.MasterData(ctx)
+		return masterData{Categories: data.Categories, Units: data.Units, Payments: data.Payments, Sources: data.Sources}, err
 	})
-	registerProductCatalog(mux, db, cache.version, productCacheTTL)
+	registerProductCatalog(mux, svc, cache.version, productCacheTTL)
 	mux.HandleFunc("GET /api/v1/master-data/version", func(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, map[string]string{"version": cache.version()})
 	})
@@ -84,40 +74,30 @@ func registerCatalog(mux *http.ServeMux, db *gorm.DB, productCacheTTL time.Durat
 			fail(w, err)
 			return
 		}
-		respond(w, 200, data.forUser(currentUser(r).Peran == "PEMILIK"))
+		data = data.forUser(currentUser(r).Peran == model.RoleOwner)
+		respond(w, 200, dto.MasterDataResponse{Version: data.Version, Categories: dto.Map(data.Categories, dto.Category),
+			Units: dto.Map(data.Units, dto.Unit), Payments: dto.Map(data.Payments, dto.Payment), Sources: dto.Map(data.Sources, dto.Source)})
 	})
 	// Frekuensi transaksi, bukan jumlah unit, agar produk satuan dan kilogram
 	// dapat dibandingkan. DRAFT/BATAL tidak ikut menentukan urutan kasir.
 	mux.HandleFunc("GET /api/v1/produk/popularitas", func(w http.ResponseWriter, r *http.Request) {
-		rows := make([]struct {
-			ProdukID  int64 `json:"produk_id"`
-			Transaksi int64 `json:"transaksi"`
-		}, 0)
-		err := db.WithContext(r.Context()).Raw(`SELECT d.produk_id, COUNT(DISTINCT d.penjualan_id) AS transaksi
-FROM public.detail_penjualan d
-JOIN public.penjualan p ON p.id = d.penjualan_id
-WHERE p.status = 'SELESAI'
-GROUP BY d.produk_id`).Scan(&rows).Error
+		rows, err := svc.ProductPopularity(r.Context())
 		if err != nil {
 			fail(w, err)
 			return
 		}
-		respond(w, 200, rows)
+		respond(w, 200, dto.Map(rows, func(row service.ProductPopularity) dto.ProductPopularityResponse {
+			return dto.ProductPopularityResponse{ProdukID: row.ProdukID, Transaksi: row.Transaksi}
+		}))
 	})
 	// Stok hanya dimuat saat membuka Pembelian; tidak disatukan dengan cache master.
 	mux.HandleFunc("GET /api/v1/stok/ringkasan", owner(func(w http.ResponseWriter, r *http.Request) {
-		rows := make([]struct {
-			ID          int64           `json:"id"`
-			Stok        decimal.Decimal `json:"stok"`
-			StokMinimum decimal.Decimal `json:"stok_minimum"`
-		}, 0)
-		err := db.WithContext(r.Context()).Raw(`SELECT p.id, p.stok_minimum, COALESCE(m.stok, 0) AS stok
-   FROM public.produk p LEFT JOIN (SELECT produk_id, SUM(perubahan) AS stok FROM public.mutasi_stok GROUP BY produk_id) m ON m.produk_id = p.id ORDER BY p.id`).Scan(&rows).Error
+		rows, err := svc.StockSummary(r.Context())
 		if err != nil {
 			fail(w, err)
 			return
 		}
-		respond(w, 200, rows)
+		respond(w, 200, dto.Map(rows, dto.StockSummary))
 	}))
 	return cache
 }

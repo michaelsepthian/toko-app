@@ -20,9 +20,7 @@ func TestDecodeRejectsClientTotalsAndTrailingJSON(t *testing.T) {
 }
 
 func TestAuthRejectsMissingOrInvalidToken(t *testing.T) {
-	supabase := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(401) }))
-	defer supabase.Close()
-	auth := NewAuth(supabase.URL, "public-test-key", nil)
+	auth := NewAuth([]byte("0123456789abcdef0123456789abcdef"), nil)
 	handler := auth.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.Error("protected handler called") }))
 	for _, token := range []string{"", "Bearer invalid"} {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)

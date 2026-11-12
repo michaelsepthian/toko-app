@@ -1,5 +1,5 @@
--- Toko kelontong — PostgreSQL (mandiri atau Supabase)
--- Jalankan sekali pada database baru melalui psql atau Supabase SQL Editor.
+-- Toko kelontong — PostgreSQL mandiri
+-- Jalankan sekali pada database baru melalui psql.
 -- Tidak menghapus atau menimpa tabel yang sudah ada.
 -- Semua nominal memakai rupiah; biaya pembayaran dibulatkan ke rupiah penuh.
 -- Identity membuat sequence terpisah untuk setiap primary key.
@@ -17,7 +17,6 @@ create sequence public.pembelian_nomor_seq as bigint start with 1 increment by 1
 
 create table public.pengguna (
     id bigint generated always as identity primary key,
-    auth_user_id uuid unique, -- Opsional untuk akun Supabase lama; login baru memakai password_hash.
     nama text not null check (btrim(nama) <> ''),
     username text not null unique check (btrim(username) <> ''),
     password_hash text,
@@ -28,14 +27,23 @@ create table public.pengguna (
 );
 
 create table public.sesi_pengguna (
-    token_hash text primary key,
+    id text primary key,
     pengguna_id bigint not null references public.pengguna(id) on delete cascade,
     expires_at timestamptz not null,
+    revoked_at timestamptz,
     created_at timestamptz not null default now()
 );
 create index sesi_pengguna_user_idx on public.sesi_pengguna(pengguna_id);
 create index sesi_pengguna_expiry_idx on public.sesi_pengguna(expires_at);
 alter table public.sesi_pengguna enable row level security;
+create table public.refresh_token_pengguna (
+    token_hash text primary key,
+    sesi_id text not null references public.sesi_pengguna(id) on delete cascade,
+    used_at timestamptz,
+    created_at timestamptz not null default now()
+);
+create index refresh_token_pengguna_session_idx on public.refresh_token_pengguna(sesi_id);
+alter table public.refresh_token_pengguna enable row level security;
 
 create table public.kategori (
     id bigint generated always as identity primary key,
@@ -346,7 +354,7 @@ $$;
 -- Fungsi ini hanya digunakan melalui trigger, bukan endpoint RPC client.
 revoke execute on function public.hitung_pembayaran_transaksi() from public;
 revoke execute on function public.set_updated_at() from public;
--- Role khusus Supabase tidak tersedia pada PostgreSQL mandiri.
+-- Batasi akses role client bila tersedia.
 do $$
 declare v_role text;
 begin
@@ -407,7 +415,7 @@ do $$ declare v_role text; begin
 end $$;
 commit;
 
--- Snapshot ringkasan harian. Dapat dijalankan ulang pada PostgreSQL lokal/Supabase.
+-- Snapshot ringkasan harian. Dapat dijalankan ulang pada PostgreSQL.
 -- Tidak mengubah transaksi penjualan atau pembelian yang sudah ada.
 begin;
 create table if not exists public.ringkasan_harian (

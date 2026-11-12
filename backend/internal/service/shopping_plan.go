@@ -2,15 +2,13 @@ package service
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
-	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 	"toko/backend/internal/apperror"
 	"toko/backend/internal/model"
+	"toko/backend/internal/repository"
 )
 
 type ShoppingItemInput struct {
@@ -60,16 +58,15 @@ func validateShoppingItem(in ShoppingItemInput) error {
 	return nil
 }
 
-func shoppingSource(tx *gorm.DB, id *int64) error {
+func shoppingSource(tx *repository.Store, id *int64) error {
 	if id == nil {
 		return nil
 	}
 	if *id <= 0 {
 		return apperror.Invalid("Tempat beli tidak valid")
 	}
-	var source model.SumberPembelian
-	if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND aktif = true", *id).Take(&source).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	if _, err := tx.ActiveSource(*id); err != nil {
+		if repository.IsNotFound(err) {
 			return apperror.Invalid("Tempat beli tidak ditemukan atau sudah nonaktif")
 		}
 		return err
@@ -77,21 +74,21 @@ func shoppingSource(tx *gorm.DB, id *int64) error {
 	return nil
 }
 
-func buildShoppingItem(tx *gorm.DB, in ShoppingItemInput) (model.RencanaBelanjaItem, error) {
+func buildShoppingItem(tx *repository.Store, in ShoppingItemInput) (model.RencanaBelanjaItem, error) {
 	row := model.RencanaBelanjaItem{ProdukID: in.ProdukID, NamaBarang: strings.TrimSpace(in.NamaBarang), Jumlah: in.Jumlah, Satuan: strings.TrimSpace(in.Satuan), Catatan: strings.TrimSpace(in.Catatan)}
 	if err := validateShoppingItem(in); err != nil {
 		return row, err
 	}
 	if in.ProdukID != nil {
-		var product model.Produk
-		if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).Where("id = ? AND aktif = true", *in.ProdukID).Take(&product).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
+		product, err := tx.ActiveProduct(*in.ProdukID)
+		if err != nil {
+			if repository.IsNotFound(err) {
 				return row, apperror.Invalid("Produk tidak ditemukan atau sudah nonaktif")
 			}
 			return row, err
 		}
-		var unit model.Satuan
-		if err := tx.First(&unit, product.SatuanID).Error; err != nil {
+		unit, err := tx.Unit(product.SatuanID)
+		if err != nil {
 			return row, err
 		}
 		row.NamaBarang, row.Satuan = product.Nama, unit.Nama
@@ -111,12 +108,14 @@ func (s *Service) CreateShoppingItems(ctx context.Context, user model.Pengguna, 
 		return rows, apperror.Invalid("Isi 1–100 barang dan identitas penyimpanan yang valid")
 	}
 	hash := digest(in)
-	err := s.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?,0))", "shopping-plan:"+in.IdempotencyKey).Error; err != nil {
+	err := s.Store.Transaction(ctx, func(tx *repository.Store) error {
+		if err := tx.LockRequest("shopping-plan:" + in.IdempotencyKey); err != nil {
 			return err
 		}
 		// Termasuk item yang telah dihapus: retry tidak boleh menghidupkan/menggandakan item.
-		if err := tx.Unscoped().Where("idempotency_key = ?", in.IdempotencyKey).Order("urutan_input").Find(&rows).Error; err != nil {
+		var err error
+		rows, err = tx.ShoppingItemsByKey(in.IdempotencyKey)
+		if err != nil {
 			return err
 		}
 		if len(rows) > 0 {
@@ -138,7 +137,7 @@ func (s *Service) CreateShoppingItems(ctx context.Context, user model.Pengguna, 
 			row.IdempotencyKey, row.UrutanInput, row.RequestHash = in.IdempotencyKey, index, hash
 			rows = append(rows, row)
 		}
-		return tx.Create(&rows).Error
+		return tx.CreateShoppingItems(rows)
 	})
 	return rows, err
 }
@@ -148,8 +147,10 @@ func (s *Service) CheckShoppingItem(ctx context.Context, user model.Pengguna, id
 	if err := shoppingPermission(user, false); err != nil {
 		return row, err
 	}
-	err := s.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&row, id).Error; err != nil {
+	err := s.Store.Transaction(ctx, func(tx *repository.Store) error {
+		var err error
+		row, err = tx.LockShoppingItem(id)
+		if err != nil {
 			return err
 		}
 		if (row.DibeliAt != nil) == checked {
@@ -161,12 +162,12 @@ func (s *Service) CheckShoppingItem(ctx context.Context, user model.Pengguna, id
 			now := time.Now()
 			at, by = &now, &user.ID
 		}
-		if err := tx.Model(&row).Updates(map[string]any{"dibeli_at": at, "dibeli_by": by, "updated_by": user.ID}).Error; err != nil {
+		if err := tx.SetShoppingChecklist(id, user.ID, at, by); err != nil {
 			return err
 		}
 		// Scan NULL ke pointer pada objek lama bisa mempertahankan nilai sebelumnya.
-		row = model.RencanaBelanjaItem{}
-		return tx.First(&row, id).Error
+		row, err = tx.ShoppingItem(id)
+		return err
 	})
 	return row, err
 }
@@ -190,22 +191,18 @@ func (s *Service) MoveShoppingItems(ctx context.Context, user model.Pengguna, in
 			return err
 		}
 	}
-	return s.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return s.Store.Transaction(ctx, func(tx *repository.Store) error {
 		if err := shoppingSource(tx, in.SumberPembelianID); err != nil {
 			return err
 		}
-		var rows []model.RencanaBelanjaItem
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id IN ?", in.IDs).Order("id").Find(&rows).Error; err != nil {
+		rows, err := tx.LockShoppingItems(in.IDs)
+		if err != nil {
 			return err
 		}
 		if len(rows) != len(in.IDs) {
-			return gorm.ErrRecordNotFound
+			return repository.ErrNotFound
 		}
-		changes := map[string]any{"sumber_pembelian_id": in.SumberPembelianID, "updated_by": user.ID}
-		if in.Tanggal != "" {
-			changes["tanggal"] = in.Tanggal
-		}
-		return tx.Model(&model.RencanaBelanjaItem{}).Where("id IN ?", in.IDs).Updates(changes).Error
+		return tx.MoveShoppingItems(in.IDs, in.SumberPembelianID, in.Tanggal, user.ID)
 	})
 }
 
@@ -214,8 +211,10 @@ func (s *Service) EditShoppingItem(ctx context.Context, user model.Pengguna, id 
 	if err := shoppingPermission(user, true); err != nil {
 		return row, err
 	}
-	err := s.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&row, id).Error; err != nil {
+	err := s.Store.Transaction(ctx, func(tx *repository.Store) error {
+		var err error
+		row, err = tx.LockShoppingItem(id)
+		if err != nil {
 			return err
 		}
 		next, err := buildShoppingItem(tx, in)
@@ -223,11 +222,11 @@ func (s *Service) EditShoppingItem(ctx context.Context, user model.Pengguna, id 
 			return err
 		}
 		// Tempat beli/tanggal sengaja tidak diterima oleh DTO edit umum.
-		if err := tx.Model(&row).Updates(map[string]any{"produk_id": next.ProdukID, "nama_barang": next.NamaBarang, "jumlah": next.Jumlah, "satuan": next.Satuan, "catatan": next.Catatan, "updated_by": user.ID}).Error; err != nil {
+		if err := tx.EditShoppingItem(id, user.ID, next); err != nil {
 			return err
 		}
-		row = model.RencanaBelanjaItem{}
-		return tx.First(&row, id).Error
+		row, err = tx.ShoppingItem(id)
+		return err
 	})
 	return row, err
 }
@@ -236,9 +235,5 @@ func (s *Service) DeleteShoppingItem(ctx context.Context, user model.Pengguna, i
 	if err := shoppingPermission(user, true); err != nil {
 		return err
 	}
-	result := s.Store.DB.WithContext(ctx).Model(&model.RencanaBelanjaItem{}).Where("id = ?", id).Updates(map[string]any{"deleted_at": time.Now(), "deleted_by": user.ID, "updated_by": user.ID})
-	if result.Error == nil && result.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
-	}
-	return result.Error
+	return s.Store.WithContext(ctx).DeleteShoppingItem(id, user.ID, time.Now())
 }

@@ -1,9 +1,7 @@
 package model
 
 import (
-	"database/sql/driver"
 	"encoding/json"
-	"fmt"
 	"github.com/shopspring/decimal"
 	"time"
 )
@@ -30,38 +28,3 @@ type RingkasanHarian struct {
 }
 
 func (RingkasanHarian) TableName() string { return "ringkasan_harian" }
-
-type ReportDate string
-
-func (d ReportDate) Value() (driver.Value, error) { return string(d), nil }
-func (d *ReportDate) Scan(value any) error {
-	switch value := value.(type) {
-	case time.Time:
-		*d = ReportDate(value.Format("2006-01-02"))
-	case string:
-		*d = ReportDate(value)
-	case []byte:
-		*d = ReportDate(string(value))
-	default:
-		return fmt.Errorf("tanggal laporan tidak valid")
-	}
-	return nil
-}
-
-type CatatanBelanja struct {
-	Audit
-	Cancellation
-	ID             int64           `json:"id" gorm:"primaryKey;autoIncrement"`
-	IdempotencyKey string          `json:"-"`
-	RequestHash    string          `json:"-"`
-	Tanggal        ReportDate      `json:"tanggal" gorm:"type:date"`
-	Total          decimal.Decimal `json:"total"`
-	Catatan        string          `json:"catatan"`
-	PenggunaID     int64           `json:"pengguna_id"`
-	Status         string          `json:"status"`
-	PembelianID    *int64          `json:"pembelian_id"`
-	CreatedAt      time.Time       `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
-}
-
-func (CatatanBelanja) TableName() string { return "catatan_belanja" }

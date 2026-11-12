@@ -2,6 +2,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net"
 	"net/url"
@@ -16,8 +17,10 @@ import (
 const DefaultProductCacheTTL = time.Hour
 
 type Config struct {
-	DatabaseURL, SupabaseURL, SupabaseKey, HTTPAddr, CORSOrigin string
-	ProductCacheTTL                                             time.Duration
+	DatabaseURL, HTTPAddr, CORSOrigin string
+	JWTKey                            []byte
+	SessionCookieSecure               bool
+	ProductCacheTTL                   time.Duration
 }
 
 func Load() (Config, error) {
@@ -34,9 +37,9 @@ func Load() (Config, error) {
 		return strings.TrimSpace(values[key])
 	}
 	c := Config{
-		DatabaseURL: get("DATABASE_URL"), SupabaseURL: strings.TrimRight(get("SUPABASE_URL"), "/"),
-		SupabaseKey: get("SUPABASE_ANON_KEY"), HTTPAddr: get("HTTP_ADDR"), CORSOrigin: get("CORS_ORIGIN"),
-		ProductCacheTTL: DefaultProductCacheTTL,
+		DatabaseURL: get("DATABASE_URL"), HTTPAddr: get("HTTP_ADDR"), CORSOrigin: get("CORS_ORIGIN"),
+		SessionCookieSecure: true,
+		ProductCacheTTL:     DefaultProductCacheTTL,
 	}
 	if value := get("PRODUCT_CACHE_TTL_SECONDS"); value != "" {
 		seconds, err := strconv.ParseInt(value, 10, 64)
@@ -81,9 +84,22 @@ func Load() (Config, error) {
 	if len(missing) > 0 {
 		return Config{}, fmt.Errorf("environment belum diisi: %s; periksa backend/.env atau environment proses", strings.Join(missing, ", "))
 	}
-	u, err := url.Parse(c.SupabaseURL)
-	if c.SupabaseURL != "" && (err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http")) {
-		return Config{}, fmt.Errorf("SUPABASE_URL tidak valid")
+	c.JWTKey, err = base64.StdEncoding.DecodeString(get("JWT_SECRET_BASE64"))
+	if err != nil || len(c.JWTKey) < 32 {
+		return Config{}, fmt.Errorf("JWT_SECRET_BASE64 wajib berupa base64 dengan minimal 32 byte acak")
+	}
+	if value := get("SESSION_COOKIE_SECURE"); value != "" {
+		c.SessionCookieSecure, err = strconv.ParseBool(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("SESSION_COOKIE_SECURE harus true atau false")
+		}
+	}
+	origin, err := url.Parse(c.CORSOrigin)
+	if err != nil || origin.Host == "" || (origin.Scheme != "https" && origin.Scheme != "http") || origin.Path != "" || origin.RawQuery != "" || origin.Fragment != "" || origin.User != nil {
+		return Config{}, fmt.Errorf("CORS_ORIGIN wajib berupa origin frontend tanpa path")
+	}
+	if origin.Scheme == "https" && !c.SessionCookieSecure {
+		return Config{}, fmt.Errorf("SESSION_COOKIE_SECURE wajib true untuk HTTPS")
 	}
 	return c, nil
 }

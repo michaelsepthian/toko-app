@@ -2,7 +2,7 @@ package httpapi
 
 import (
 	"net/http"
-	"toko/backend/internal/model"
+	"toko/backend/internal/dto"
 	"toko/backend/internal/service"
 )
 
@@ -13,24 +13,24 @@ func registerUsers(mux *http.ServeMux, svc *service.Service) {
 			fail(w, err)
 			return
 		}
-		rows := make([]model.Pengguna, 0)
-		if err := svc.Store.DB.WithContext(r.Context()).Select("id", "nama", "username", "peran", "aktif").Order("id DESC").Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
-			fail(w, err)
-			return
-		}
-		respond(w, http.StatusOK, rows)
-	}))
-	mux.HandleFunc("POST /api/v1/pengguna", owner(func(w http.ResponseWriter, r *http.Request) {
-		var input service.CreateUserInput
-		if err := decode(w, r, &input); err != nil {
-			fail(w, err)
-			return
-		}
-		user, err := svc.CreateUser(r.Context(), input)
+		rows, err := svc.ListUsers(r.Context(), limit, offset)
 		if err != nil {
 			fail(w, err)
 			return
 		}
-		respond(w, http.StatusCreated, user)
+		respond(w, http.StatusOK, dto.Map(rows, dto.User))
+	}))
+	mux.HandleFunc("POST /api/v1/pengguna", owner(func(w http.ResponseWriter, r *http.Request) {
+		var input dto.CreateUserRequest
+		if err := decode(w, r, &input); err != nil {
+			fail(w, err)
+			return
+		}
+		user, err := svc.CreateUser(r.Context(), input.Input())
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		respond(w, http.StatusCreated, dto.User(user))
 	}))
 }

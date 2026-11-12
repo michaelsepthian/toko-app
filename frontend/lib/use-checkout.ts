@@ -20,34 +20,86 @@ export function useCheckout(userID: number, kind: 'penjualan' | 'pembelian', slo
     try {
       for (let index = 0; index < sessionStorage.length; index++) {
         const storedKey = sessionStorage.key(index)
-        if (!storedKey || !(storedKey === prefix || (storedKey.startsWith(`${prefix}:`) && /^\d+$/.test(storedKey.slice(prefix.length + 1))))) continue
-        try { loaded[storedKey] = { pending: JSON.parse(sessionStorage.getItem(storedKey) || 'null'), busy: false, ready: true } } catch { /* Submit menampilkan error jika payload tersimpan rusak. */ }
+        if (
+          !storedKey ||
+          !(
+            storedKey === prefix ||
+            (storedKey.startsWith(`${prefix}:`) && /^\d+$/.test(storedKey.slice(prefix.length + 1)))
+          )
+        )
+          continue
+        try {
+          loaded[storedKey] = {
+            pending: JSON.parse(sessionStorage.getItem(storedKey) || 'null'),
+            busy: false,
+            ready: true,
+          }
+        } catch {
+          /* Submit menampilkan error jika payload tersimpan rusak. */
+        }
       }
-    } catch { /* Error storage ditampilkan jika submit tidak dapat disimpan. */ }
-    setAttempts(previous => ({ ...loaded, ...previous, [key]: previous[key]?.busy ? previous[key] : loaded[key] ?? { ...emptyAttempt, ready: true } }))
+    } catch {
+      /* Error storage ditampilkan jika submit tidak dapat disimpan. */
+    }
+    setAttempts((previous) => ({
+      ...loaded,
+      ...previous,
+      [key]: previous[key]?.busy
+        ? previous[key]
+        : (loaded[key] ?? { ...emptyAttempt, ready: true }),
+    }))
   }, [key, prefix])
 
   function update(patch: Partial<AttemptState>) {
-    setAttempts(previous => ({ ...previous, [key]: { ...(previous[key] ?? emptyAttempt), ...patch } }))
+    setAttempts((previous) => ({
+      ...previous,
+      [key]: { ...(previous[key] ?? emptyAttempt), ...patch },
+    }))
   }
   async function submit(input?: TransactionInput): Promise<Transaction | undefined> {
     if (locks.current.has(key)) return
-    locks.current.add(key); update({ busy: true })
+    locks.current.add(key)
+    update({ busy: true })
     try {
-      return await sendCheckoutAttempt(sessionStorage, key, input,
-        body => api<Transaction>(`/${kind}`, 'POST', body), pending => update({ pending }))
-    } finally { locks.current.delete(key); update({ busy: false }) }
+      return await sendCheckoutAttempt(
+        sessionStorage,
+        key,
+        input,
+        (body) => api<Transaction>(`/${kind}`, 'POST', body),
+        (pending) => update({ pending }),
+      )
+    } finally {
+      locks.current.delete(key)
+      update({ busy: false })
+    }
   }
   function canDiscard(other: SaleSlot) {
     const otherKey = checkoutStorageKey(userID, kind, other)
-    if (locks.current.has(otherKey) || attempts[otherKey]?.busy || attempts[otherKey]?.pending) return false
-    try { return sessionStorage.getItem(otherKey) === null } catch { return false }
+    if (locks.current.has(otherKey) || attempts[otherKey]?.busy || attempts[otherKey]?.pending)
+      return false
+    try {
+      return sessionStorage.getItem(otherKey) === null
+    } catch {
+      return false
+    }
   }
   function discard(other: SaleSlot) {
     if (!canDiscard(other)) return false
     const otherKey = checkoutStorageKey(userID, kind, other)
-    setAttempts(previous => { const next = { ...previous }; delete next[otherKey]; return next })
+    setAttempts((previous) => {
+      const next = { ...previous }
+      delete next[otherKey]
+      return next
+    })
     return true
   }
-  return { submit, canDiscard, discard, ...current, anyBusy: Object.values(attempts).some(attempt => attempt.busy), pendingAt: (other: SaleSlot) => attempts[checkoutStorageKey(userID, kind, other)]?.pending ?? null }
+  return {
+    submit,
+    canDiscard,
+    discard,
+    ...current,
+    anyBusy: Object.values(attempts).some((attempt) => attempt.busy),
+    pendingAt: (other: SaleSlot) =>
+      attempts[checkoutStorageKey(userID, kind, other)]?.pending ?? null,
+  }
 }

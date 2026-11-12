@@ -2,7 +2,7 @@
 
 Next.js + React, terhubung ke backend Go di `../backend`. Data contoh sudah
 dihapus dari aplikasi. Login dan registrasi memakai username/password melalui backend Go. Data toko dan
-transaksi juga melalui API Go; Supabase digunakan sebagai database PostgreSQL.
+transaksi juga melalui API Go dengan database PostgreSQL mandiri.
 
 ## Persiapan database dan backend
 
@@ -38,7 +38,7 @@ npm run dev
 ```
 
 Buka http://localhost:3000. URL API contoh `http://127.0.0.1:8080/api/v1`.
-Jangan masukkan password database atau Supabase service-role key ke frontend.
+Jangan masukkan password database atau kunci signing JWT ke frontend.
 
 Di Vercel, gunakan **Root Directory: frontend**, install command `npm ci`, build
 command `npm run build`. Isi environment URL API dari `.env.example` pada project
@@ -154,9 +154,19 @@ yang sama. Username 3–50 karakter (huruf, angka, titik, garis bawah, tanda hub
 password baru minimal 8 karakter dan maksimal 72 byte. Username tidak peka huruf
 besar/kecil. Profil lama tetap dipertahankan; tidak perlu menghapus data toko.
 
-Sesi disimpan pada `sessionStorage` browser dan berlaku maksimal 12 jam. Logout
-mencabut token pada backend. Sesi hanya berlaku pada tab/browser session tersebut.
-Password tidak disimpan pada browser. Akun baru tidak memakai Supabase Auth.
+JWT access token disimpan pada `sessionStorage` dan berlaku maksimal 30 menit.
+Refresh token berada dalam cookie HttpOnly dan sesi berakhir 17 jam sejak login.
+Request otomatis meminta JWT baru sebelum kedaluwarsa atau setelah error
+`ACCESS_TOKEN_EXPIRED`, lalu mengulang request maksimal sekali dengan payload
+serta idempotency key yang sama. Keranjang tetap utuh. Gangguan jaringan tidak
+menghapus sesi; sesi yang dicabut/kedaluwarsa meminta login ulang.
+
+Cookie memungkinkan pemulihan setelah tab/browser dibuka kembali. Refresh dan
+login/logout dikoordinasikan melalui Web Locks dan BroadcastChannel; satu browser
+memakai satu akun aktif. Logout mencabut seluruh sesi terkait di backend.
+Frontend dan API memakai domain yang sama. Saat lokal, gunakan hostname yang sama,
+misalnya frontend `http://localhost:3000` dan API `http://localhost:8080/api/v1`.
+Password dan refresh token tidak disimpan dalam JavaScript.
 
 ### Operasional kasir
 
@@ -251,6 +261,16 @@ penyimpanan offline permanen. Checkout offline dan sinkronisasi offline belum te
 
 ## Pengujian
 
+Peta folder, pemisahan tanggung jawab, dan alur frontend/backend dijelaskan di
+[`../README.md`](../README.md#peta-kode-dan-alur-aplikasi). Format source TypeScript
+dan JSX, stylesheet CSS, test, serta konfigurasi menggunakan Prettier dengan
+indentasi 2 spasi:
+
+```sh
+npm run format
+npm run format:check
+```
+
 ```sh
 npm run typecheck
 npm test
@@ -264,7 +284,7 @@ PLAYWRIGHT_CHANNEL=chrome npm run test:e2e
 Unit test memeriksa pembulatan, biaya pembayaran, validasi, dan sanitasi struk.
 Test browser memeriksa kontrak API dengan respons jaringan yang di-mock khusus
 test: registrasi username/password, login, scan, checkout, pembelian, pembatasan menu, dan retry. Test browser
-tidak memakai akun Supabase asli atau perangkat USB. Backend memiliki integration
+tidak memakai akun layanan eksternal atau perangkat USB. Backend memiliki integration
 test terpisah terhadap PostgreSQL yang menjalankan skema SQL asli.
 
 ### Peringatan stok dan shortcut tambahan

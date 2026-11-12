@@ -2,84 +2,265 @@ import { test, expect, type Page } from '@playwright/test'
 import { jakartaDay } from '../../lib/history-date'
 import { catalogFixture } from './catalog-fixture'
 
-async function mockAPI(page: Page, role = 'PEMILIK', timeoutOnce = false, stock = '10', productCount = 1) {
+async function mockAPI(
+  page: Page,
+  role = 'PEMILIK',
+  timeoutOnce = false,
+  stock = '10',
+  productCount = 1,
+  openPage = true,
+) {
   const calls: { path: string; body: Record<string, unknown> }[] = []
-  const product = { id: 1, nama: 'Beras Ramos', sku: 'BR-001', barcode: '0012345678901', harga_jual: '10000', stok_minimum: '2', kategori_id: 1, satuan_id: 1, aktif: true, is_favorit: false }
+  const product = {
+    id: 1,
+    nama: 'Beras Ramos',
+    sku: 'BR-001',
+    barcode: '0012345678901',
+    harga_jual: '10000',
+    stok_minimum: '2',
+    kategori_id: 1,
+    satuan_id: 1,
+    aktif: true,
+    is_favorit: false,
+  }
   const methods = [
-    { id: 1, nama: 'Cash', jenis: 'CASH', tarif_persen: '0', tarif_tetap: '0', penanggung_biaya: 'TOKO', aktif: true, untuk_penjualan: true, untuk_pembelian: true },
-    { id: 2, nama: 'QRIS', jenis: 'QRIS', tarif_persen: '0.7', tarif_tetap: '0', penanggung_biaya: 'PELANGGAN', aktif: true, untuk_penjualan: true, untuk_pembelian: false },
-    { id: 3, nama: 'Transfer Supplier', jenis: 'TRANSFER', tarif_persen: '0', tarif_tetap: '2500', penanggung_biaya: 'TOKO', aktif: true, untuk_penjualan: false, untuk_pembelian: true },
+    {
+      id: 1,
+      nama: 'Cash',
+      jenis: 'CASH',
+      tarif_persen: '0',
+      tarif_tetap: '0',
+      penanggung_biaya: 'TOKO',
+      aktif: true,
+      untuk_penjualan: true,
+      untuk_pembelian: true,
+    },
+    {
+      id: 2,
+      nama: 'QRIS',
+      jenis: 'QRIS',
+      tarif_persen: '0.7',
+      tarif_tetap: '0',
+      penanggung_biaya: 'PELANGGAN',
+      aktif: true,
+      untuk_penjualan: true,
+      untuk_pembelian: false,
+    },
+    {
+      id: 3,
+      nama: 'Transfer Supplier',
+      jenis: 'TRANSFER',
+      tarif_persen: '0',
+      tarif_tetap: '2500',
+      penanggung_biaya: 'TOKO',
+      aktif: true,
+      untuk_penjualan: false,
+      untuk_pembelian: true,
+    },
   ]
-  const products = Array.from({ length: productCount }, (_, index) => ({ ...product, id: index + 1, ...(index ? { nama: `Produk Uji ${index + 1}`, sku: `TEST-${index + 1}`, barcode: String(1000000000000 + index) } : {}) }))
+  const products = Array.from({ length: productCount }, (_, index) => ({
+    ...product,
+    id: index + 1,
+    ...(index
+      ? {
+          nama: `Produk Uji ${index + 1}`,
+          sku: `TEST-${index + 1}`,
+          barcode: String(1000000000000 + index),
+        }
+      : {}),
+  }))
   let version = 1
   let dropped = false
-  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization,content-type', 'access-control-allow-methods': 'GET,POST,PUT,OPTIONS' }
+  const cors = {
+    'access-control-allow-origin': 'http://127.0.0.1:3007',
+    'access-control-allow-credentials': 'true',
+    'access-control-allow-headers': 'authorization,content-type',
+    'access-control-allow-methods': 'GET,POST,PUT,OPTIONS',
+  }
   const user = { id: 1, nama: 'Kasir Test', username: 'kasir', peran: role }
-  const jwt = 'toko_' + 'a'.repeat(64)
-  await page.route('http://api.test/api/v1/**', async route => {
-    const request = route.request(); const url = new URL(request.url()); const path = url.pathname.replace('/api/v1', '')
-    if (request.method() === 'OPTIONS') { await route.fulfill({ status: 204, headers: cors }); return }
-    if (path === '/setup') { await route.fulfill({ json: { data: { initialized: true, registration_open: false } }, headers: cors }); return }
-    if (path === '/auth/login') { await route.fulfill({ json: { data: { user, access_token: jwt, expires_at: new Date(Date.now()+3600000).toISOString() } }, headers: cors }); return }
-    if (request.headers().authorization !== `Bearer ${jwt}`) { await route.fulfill({ status: 401, json: { error: { message: 'Missing token' } }, headers: cors }); return }
+  const jwt = 'test.jwt.signature'
+  await page.route('http://api.test/api/v1/**', async (route) => {
+    const request = route.request()
+    const url = new URL(request.url())
+    const path = url.pathname.replace('/api/v1', '')
+    if (request.method() === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: cors })
+      return
+    }
+    if (path === '/auth/refresh') {
+      await route.fulfill({
+        status: 401,
+        headers: cors,
+        json: { error: { code: 'SESSION_INVALID', message: 'Sesi berakhir' } },
+      })
+      return
+    }
+    if (path === '/setup') {
+      await route.fulfill({
+        json: { data: { initialized: true, registration_open: false } },
+        headers: cors,
+      })
+      return
+    }
+    if (path === '/auth/logout') {
+      await route.fulfill({ headers: cors, json: { data: { logged_out: true } } })
+      return
+    }
+    if (path === '/auth/login') {
+      await route.fulfill({
+        json: {
+          data: {
+            user,
+            access_token: jwt,
+            expires_at: new Date(Date.now() + 1800000).toISOString(),
+            session_expires_at: new Date(Date.now() + 17 * 3600000).toISOString(),
+          },
+        },
+        headers: cors,
+      })
+      return
+    }
+    if (request.headers().authorization !== `Bearer ${jwt}`) {
+      await route.fulfill({
+        status: 401,
+        json: { error: { message: 'Missing token' } },
+        headers: cors,
+      })
+      return
+    }
     let result: unknown = []
     if (request.method() === 'POST') {
-      const body = request.postDataJSON(); calls.push({ path, body })
+      const body = request.postDataJSON()
+      calls.push({ path, body })
       if (path === '/penjualan' || path === '/pembelian') {
-        if (timeoutOnce && !dropped) { dropped = true; await route.abort('failed'); return }
+        if (timeoutOnce && !dropped) {
+          dropped = true
+          await route.abort('failed')
+          return
+        }
         const purchase = path === '/pembelian'
-        result = { id: 1, nomor: purchase ? 'BELI-20261028-230000-1' : 'BILL-20261028-230000-1', tanggal: '2026-10-28T16:00:00Z', status: 'SELESAI', metode_pembayaran_id: body.metode_pembayaran_id, subtotal_barang: purchase ? '7000' : '10000', diskon_transaksi: '0', total_belanja: purchase ? '7000' : '10000', biaya_pembayaran: '0', total_tagihan: '10000', total_pembayaran: '7000', jumlah_dibayar: body.jumlah_dibayar || '0', kembalian: '10000', detail: [{ id: 1, produk_id: 1, nama_produk: product.nama, jumlah: '1', harga_jual: '10000', harga_beli: '7000', diskon: '0', subtotal: purchase ? '7000' : '10000' }] }
-      } else { result = { id: 9, ...body }; if (path === '/produk') { products.push(result as typeof product); version++ } }
+        result = {
+          id: 1,
+          nomor: purchase ? 'BELI-20261028-230000-1' : 'BILL-20261028-230000-1',
+          tanggal: '2026-10-28T16:00:00Z',
+          status: 'SELESAI',
+          metode_pembayaran_id: body.metode_pembayaran_id,
+          subtotal_barang: purchase ? '7000' : '10000',
+          diskon_transaksi: '0',
+          total_belanja: purchase ? '7000' : '10000',
+          biaya_pembayaran: '0',
+          total_tagihan: '10000',
+          total_pembayaran: '7000',
+          jumlah_dibayar: body.jumlah_dibayar || '0',
+          kembalian: '10000',
+          detail: [
+            {
+              id: 1,
+              produk_id: 1,
+              nama_produk: product.nama,
+              jumlah: '1',
+              harga_jual: '10000',
+              harga_beli: '7000',
+              diskon: '0',
+              subtotal: purchase ? '7000' : '10000',
+            },
+          ],
+        }
+      } else {
+        result = { id: 9, ...body }
+        if (path === '/produk') {
+          products.push(result as typeof product)
+          version++
+        }
+      }
     } else if (request.method() === 'PUT' && path.endsWith('/favorit')) {
-      const product = products.find(product => product.id === Number(path.split('/')[2]))!
-      product.is_favorit = request.postDataJSON().is_favorit; version++; result = product
+      const product = products.find((product) => product.id === Number(path.split('/')[2]))!
+      product.is_favorit = request.postDataJSON().is_favorit
+      version++
+      result = product
     } else {
-      if (path === '/master-data') result = { version: String(version), categories: [{ id: 1, nama: 'Sembako' }], units: [{ id: 1, nama: 'pcs' }], payments: methods, sources: role === 'PEMILIK' ? [{ id: 1, nama: 'Grosir Makmur', jenis: 'TOKO', aktif: true }] : [] }
-      if (path === '/katalog/produk') result = catalogFixture(products, url.searchParams, String(version))
-      if (/^\/produk\/\d+$/.test(path)) result = products.find(product => product.id === Number(path.split('/')[2]))
+      if (path === '/master-data')
+        result = {
+          version: String(version),
+          categories: [{ id: 1, nama: 'Sembako' }],
+          units: [{ id: 1, nama: 'pcs' }],
+          payments: methods,
+          sources:
+            role === 'PEMILIK'
+              ? [{ id: 1, nama: 'Grosir Makmur', jenis: 'TOKO', aktif: true }]
+              : [],
+        }
+      if (path === '/katalog/produk')
+        result = catalogFixture(products, url.searchParams, String(version))
+      if (/^\/produk\/\d+$/.test(path))
+        result = products.find((product) => product.id === Number(path.split('/')[2]))
       if (path === '/master-data/version') result = { version: String(version) }
-      if (path === '/stok/ringkasan') result = products.map(product => ({ id: product.id, stok: stock, stok_minimum: '2' }))
+      if (path === '/stok/ringkasan')
+        result = products.map((product) => ({ id: product.id, stok: stock, stok_minimum: '2' }))
       if (path === '/me') result = { id: 1, nama: 'Kasir Test', peran: role }
-      if (path === '/produk') result = url.searchParams.has('barcode') && url.searchParams.get('barcode') !== product.barcode ? [] : [product]
+      if (path === '/produk')
+        result =
+          url.searchParams.has('barcode') && url.searchParams.get('barcode') !== product.barcode
+            ? []
+            : [product]
       if (path === '/kategori') result = [{ id: 1, nama: 'Sembako' }]
       if (path === '/satuan') result = [{ id: 1, nama: 'pcs' }]
       if (path === '/stok') result = [{ id: 1, stok: stock, stok_minimum: '2' }]
       if (path === '/metode-pembayaran') result = methods
-      if (path === '/sumber-pembelian') result = [{ id: 1, nama: 'Grosir Makmur', jenis: 'TOKO', aktif: true }]
+      if (path === '/sumber-pembelian')
+        result = [{ id: 1, nama: 'Grosir Makmur', jenis: 'TOKO', aktif: true }]
     }
-    await route.fulfill({ status: request.method() === 'POST' ? 201 : 200, json: { data: result }, headers: cors })
+    await route.fulfill({
+      status: request.method() === 'POST' ? 201 : 200,
+      json: { data: result },
+      headers: cors,
+    })
   })
+  if (!openPage) return calls
   await page.goto('/')
   await page.getByLabel('Username', { exact: true }).fill('kasir')
   await page.getByLabel('Password', { exact: true }).fill('password')
   await page.getByRole('button', { name: 'Masuk', exact: true }).click()
   await expect(page.getByRole('navigation', { name: 'Menu utama' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true })).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }),
+  ).toBeVisible()
   return calls
 }
 
 test('scan exact, cash checkout, dan payload API', async ({ page }) => {
   const calls = await mockAPI(page)
   const scan = page.getByLabel('Cari atau scan produk penjualan', { exact: true })
-  await scan.fill('9999999999999'); await scan.press('Enter')
-  await expect(page.getByRole('alert').filter({ hasText: 'Barcode' })).toContainText('tidak ditemukan')
-  await scan.fill('0012345678901'); await scan.press('Enter')
+  await scan.fill('9999999999999')
+  await scan.press('Enter')
+  await expect(page.getByRole('alert').filter({ hasText: 'Barcode' })).toContainText(
+    'tidak ditemukan',
+  )
+  await scan.fill('0012345678901')
+  await scan.press('Enter')
   await expect(page.getByLabel('Jumlah Beras Ramos')).toHaveValue('1')
-  await expect(page.getByRole('group', { name: 'Metode pembayaran' }).getByRole('button', { name: 'Transfer Supplier' })).toHaveCount(0)
+  await expect(
+    page
+      .getByRole('group', { name: 'Metode pembayaran' })
+      .getByRole('button', { name: 'Transfer Supplier' }),
+  ).toHaveCount(0)
   await expect(page.getByLabel('Print struk setelah pembayaran')).toHaveCount(0)
   await page.getByRole('button', { name: /Bayar.*F8/ }).click()
   await page.getByRole('dialog').getByLabel('Print struk setelah pembayaran').uncheck()
   await page.getByLabel('Uang diterima').fill('20000')
   await page.getByRole('button', { name: 'Selesaikan Pembayaran' }).click()
   await expect(page.getByRole('dialog')).toContainText('BILL-20261028-230000-1')
-  const sale = calls.find(call => call.path === '/penjualan')!
+  const sale = calls.find((call) => call.path === '/penjualan')!
   expect(sale.body.items).toEqual([{ produk_id: 1, jumlah: '1', diskon: '0' }])
-  expect(sale.body.jumlah_dibayar).toBe('20000'); expect(sale.body).not.toHaveProperty('subtotal_barang')
+  expect(sale.body.jumlah_dibayar).toBe('20000')
+  expect(sale.body).not.toHaveProperty('subtotal_barang')
   expect(sale.body.idempotency_key).toMatch(/^[a-f0-9-]{36}$/)
   await page.screenshot({ path: 'test-results/kasir-payment.png', fullPage: true })
 })
 
-test('klik nama pada daftar belanja kasir memilih baris dan menyeleksi jumlah', async ({ page }) => {
+test('klik nama pada daftar belanja kasir memilih baris dan menyeleksi jumlah', async ({
+  page,
+}) => {
   await mockAPI(page)
   await page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }).click()
   const line = page.locator('.sale-cart-line').filter({ hasText: 'Beras Ramos' })
@@ -87,7 +268,12 @@ test('klik nama pada daftar belanja kasir memilih baris dan menyeleksi jumlah', 
   const quantity = line.getByLabel('Jumlah Beras Ramos', { exact: true })
   await expect(quantity).toBeFocused()
   await expect(line).toHaveAttribute('data-active', 'true')
-  expect(await quantity.evaluate(input => [(input as HTMLInputElement).selectionStart, (input as HTMLInputElement).selectionEnd])).toEqual([0, 1])
+  expect(
+    await quantity.evaluate((input) => [
+      (input as HTMLInputElement).selectionStart,
+      (input as HTMLInputElement).selectionEnd,
+    ]),
+  ).toEqual([0, 1])
   await line.getByRole('button', { name: 'Tambah Beras Ramos', exact: true }).click()
   await expect(quantity).toHaveValue('2')
 })
@@ -95,9 +281,13 @@ test('klik nama pada daftar belanja kasir memilih baris dan menyeleksi jumlah', 
 test('pembelian mencatat sumber, harga beli dan metode yang sesuai', async ({ page }) => {
   const calls = await mockAPI(page)
   await page.locator('.pos-more > summary').click()
-  await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Pembelian', exact: true }).click()
+  await page
+    .getByRole('navigation', { name: 'Menu utama' })
+    .getByRole('button', { name: 'Pembelian', exact: true })
+    .click()
   const scan = page.getByRole('textbox', { name: 'Cari atau scan produk pembelian' })
-  await scan.fill('0012345678901'); await scan.press('Enter')
+  await scan.fill('0012345678901')
+  await scan.press('Enter')
   await page.getByLabel('Harga beli Beras Ramos').fill('7000')
   await page.getByRole('button', { name: 'Tempat beli / sales', exact: true }).click()
   await page.getByRole('combobox', { name: 'Cari tempat beli / sales' }).fill('makmur')
@@ -109,9 +299,10 @@ test('pembelian mencatat sumber, harga beli dan metode yang sesuai', async ({ pa
   await page.getByRole('button', { name: /Simpan Pembelian · F8/ }).click()
   await page.getByRole('button', { name: 'Konfirmasi & Simpan' }).click()
   await expect(page.getByRole('dialog')).toContainText('BELI-20261028-230000-1')
-  const buy = calls.find(call => call.path === '/pembelian')!
+  const buy = calls.find((call) => call.path === '/pembelian')!
   expect(buy.body.items).toEqual([{ produk_id: 1, jumlah: '1', diskon: '0', harga_beli: '7000' }])
-  expect(buy.body.sumber_pembelian_id).toBe(1); expect(buy.body.nomor_nota).toBe('NOTA-01')
+  expect(buy.body.sumber_pembelian_id).toBe(1)
+  expect(buy.body.nomor_nota).toBe('NOTA-01')
 })
 
 test('kasir tidak memiliki menu pemilik', async ({ page }) => {
@@ -135,10 +326,10 @@ test('retry setelah koneksi putus memakai body dan key yang sama', async ({ page
   await page.reload()
   await page.getByRole('button', { name: /Coba lagi/ }).click()
   await expect(page.getByRole('dialog')).toContainText('BILL-20261028-230000-1')
-  const sales = calls.filter(call => call.path === '/penjualan')
-  expect(sales).toHaveLength(2); expect(sales[0].body).toEqual(sales[1].body)
+  const sales = calls.filter((call) => call.path === '/penjualan')
+  expect(sales).toHaveLength(2)
+  expect(sales[0].body).toEqual(sales[1].body)
 })
-
 
 test('pencarian dan pembayaran dapat diselesaikan dengan keyboard', async ({ page }) => {
   const calls = await mockAPI(page)
@@ -164,11 +355,14 @@ test('pencarian dan pembayaran dapat diselesaikan dengan keyboard', async ({ pag
   await page.keyboard.press('Enter')
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(search).toBeFocused()
-  expect(calls.find(call => call.path === '/penjualan')?.body.items).toEqual([{ produk_id: 1, jumlah: '2', diskon: '0' }])
+  expect(calls.find((call) => call.path === '/penjualan')?.body.items).toEqual([
+    { produk_id: 1, jumlah: '2', diskon: '0' },
+  ])
 })
 
-
-test('penjualan menyembunyikan stok dan tetap dapat dibayar; F9 kosongkan keranjang', async ({ page }) => {
+test('penjualan menyembunyikan stok dan tetap dapat dibayar; F9 kosongkan keranjang', async ({
+  page,
+}) => {
   const calls = await mockAPI(page, 'PEMILIK', false, '0')
   const card = page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true })
   await expect(card).toBeEnabled()
@@ -177,7 +371,7 @@ test('penjualan menyembunyikan stok dan tetap dapat dibayar; F9 kosongkan keranj
   await expect(page.getByLabel('Jumlah Beras Ramos')).toHaveValue('1')
   await expect(page.locator('.sale-cart')).not.toContainText('Stok')
   await expect(card).not.toContainText('Stok')
-  page.once('dialog', dialog => dialog.accept())
+  page.once('dialog', (dialog) => dialog.accept())
   await page.keyboard.press('F9')
   await expect(page.getByLabel('Jumlah Beras Ramos')).toHaveCount(0)
   await expect(page.getByLabel('Cari atau scan produk penjualan')).toBeFocused()
@@ -187,12 +381,15 @@ test('penjualan menyembunyikan stok dan tetap dapat dibayar; F9 kosongkan keranj
   await page.keyboard.type('20000')
   await page.keyboard.press('Enter')
   await expect(page.getByRole('dialog')).toContainText('PEMBAYARAN BERHASIL')
-  expect(calls.filter(call => call.path === '/penjualan')).toHaveLength(1)
+  expect(calls.filter((call) => call.path === '/penjualan')).toHaveLength(1)
 })
 
 test('dropdown produk mencari pilihan dengan keyboard', async ({ page }) => {
   await mockAPI(page)
-  await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Produk', exact: true }).click()
+  await page
+    .getByRole('navigation', { name: 'Menu utama' })
+    .getByRole('button', { name: 'Produk', exact: true })
+    .click()
   await page.getByRole('button', { name: 'Tambah Produk', exact: true }).click()
   await page.getByRole('button', { name: 'Kategori', exact: true }).click()
   const search = page.getByRole('combobox', { name: 'Cari kategori' })
@@ -217,7 +414,9 @@ test('F10 memakai jalur buka laci dan menampilkan hasilnya', async ({ page }) =>
 })
 
 for (const width of [390, 1440]) {
-  test(`perangkat laci belum sesuai menampilkan toast 5 detik tanpa mengganggu penjualan ${width}px`, async ({ page }) => {
+  test(`perangkat laci belum sesuai menampilkan toast 5 detik tanpa mengganggu penjualan ${width}px`, async ({
+    page,
+  }) => {
     await page.setViewportSize({ width, height: 844 })
     await mockAPI(page, 'KASIR')
     await page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }).click()
@@ -241,8 +440,9 @@ for (const width of [390, 1440]) {
   })
 }
 
-
-test('lebar panel dapat diubah horizontal dan tombol bayar tetap selebar panel', async ({ page }) => {
+test('lebar panel dapat diubah horizontal dan tombol bayar tetap selebar panel', async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await mockAPI(page)
   const divider = page.getByRole('separator', { name: 'Atur lebar daftar belanja' })
@@ -271,23 +471,32 @@ test('lebar panel dapat diubah horizontal dan tombol bayar tetap selebar panel',
 test('transaksi berikutnya kembali menggunakan metode tunai', async ({ page }) => {
   await mockAPI(page)
   const methods = page.getByRole('group', { name: 'Metode pembayaran' })
-  await expect(methods.getByRole('button', { name: 'Tunai' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(methods.getByRole('button', { name: 'Tunai' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
   await page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }).click()
   await page.keyboard.press('F5')
   await page.getByRole('button', { name: 'Selesaikan Pembayaran', exact: true }).click()
   await page.getByRole('button', { name: /Selesai.*Enter/ }).click()
-  await expect(methods.getByRole('button', { name: 'Tunai' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(methods.getByRole('button', { name: 'Tunai' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
 })
 
-
-test('Enter menutup popup berhasil walau fokus terlepas dan tidak menambah barang saat ditahan', async ({ page }) => {
+test('Enter menutup popup berhasil walau fokus terlepas dan tidak menambah barang saat ditahan', async ({
+  page,
+}) => {
   await mockAPI(page)
   await page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }).click()
   await page.keyboard.press('F8')
   await page.getByLabel('Uang diterima').fill('20000')
   await page.keyboard.press('Enter')
   await expect(page.getByRole('dialog')).toContainText('PEMBAYARAN BERHASIL')
-  await page.getByRole('button', { name: /Selesai.*Enter/ }).evaluate(button => (button as HTMLElement).blur())
+  await page
+    .getByRole('button', { name: /Selesai.*Enter/ })
+    .evaluate((button) => (button as HTMLElement).blur())
   await page.keyboard.down('Enter')
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.getByLabel('Cari atau scan produk penjualan')).toBeFocused()
@@ -296,10 +505,14 @@ test('Enter menutup popup berhasil walau fokus terlepas dan tidak menambah baran
   await expect(page.getByLabel('Jumlah Beras Ramos')).toHaveCount(0)
 })
 
-
-test('master sekali tanpa paging, tidak dimuat ulang setelah penjualan; stok hanya di pembelian', async ({ page }) => {
+test('master sekali tanpa paging, tidak dimuat ulang setelah penjualan; stok hanya di pembelian', async ({
+  page,
+}) => {
   const reads: string[] = []
-  page.on('request', request => { if (request.method() === 'GET' && request.url().startsWith('http://api.test')) reads.push(new URL(request.url()).pathname) })
+  page.on('request', (request) => {
+    if (request.method() === 'GET' && request.url().startsWith('http://api.test'))
+      reads.push(new URL(request.url()).pathname)
+  })
   await mockAPI(page)
   await page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }).click()
   await page.keyboard.press('F8')
@@ -307,21 +520,33 @@ test('master sekali tanpa paging, tidak dimuat ulang setelah penjualan; stok han
   await page.keyboard.press('Enter')
   await expect(page.getByRole('dialog')).toContainText('PEMBAYARAN BERHASIL')
   await page.keyboard.press('Enter')
-  expect(reads.filter(path => path === '/api/v1/master-data')).toHaveLength(1)
-  expect(reads.filter(path => /^\/api\/v1\/(produk|kategori|satuan|metode-pembayaran|sumber-pembelian|stok)$/.test(path))).toHaveLength(0)
-  expect(reads.filter(path => path === '/api/v1/stok/ringkasan')).toHaveLength(0)
+  expect(reads.filter((path) => path === '/api/v1/master-data')).toHaveLength(1)
+  expect(
+    reads.filter((path) =>
+      /^\/api\/v1\/(produk|kategori|satuan|metode-pembayaran|sumber-pembelian|stok)$/.test(path),
+    ),
+  ).toHaveLength(0)
+  expect(reads.filter((path) => path === '/api/v1/stok/ringkasan')).toHaveLength(0)
   await page.locator('.pos-more > summary').click()
-  await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Pembelian', exact: true }).click()
+  await page
+    .getByRole('navigation', { name: 'Menu utama' })
+    .getByRole('button', { name: 'Pembelian', exact: true })
+    .click()
   await expect(page.getByRole('heading', { name: 'Stok Produk', exact: true })).toBeVisible()
-  await expect.poll(() => reads.filter(path => path === '/api/v1/stok/ringkasan').length).toBe(1)
+  await expect.poll(() => reads.filter((path) => path === '/api/v1/stok/ringkasan').length).toBe(1)
 })
-
 
 test('riwayat penjualan dimulai hari ini dan dapat difilter tanggal tertentu', async ({ page }) => {
   const queries: URL[] = []
-  page.on('request', request => { const url = new URL(request.url()); if (request.method() === 'GET' && url.pathname === '/api/v1/penjualan') queries.push(url) })
+  page.on('request', (request) => {
+    const url = new URL(request.url())
+    if (request.method() === 'GET' && url.pathname === '/api/v1/penjualan') queries.push(url)
+  })
   await mockAPI(page)
-  await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Riwayat', exact: true }).click()
+  await page
+    .getByRole('navigation', { name: 'Menu utama' })
+    .getByRole('button', { name: 'Riwayat', exact: true })
+    .click()
   const date = page.getByLabel('Tanggal penjualan (WIB)', { exact: true })
   await expect(date).toHaveValue(jakartaDay())
   await expect(date).toBeEnabled()
@@ -335,9 +560,13 @@ test('riwayat penjualan dimulai hari ini dan dapat difilter tanggal tertentu', a
   await expect.poll(() => queries.at(-1)?.searchParams.get('tanggal')).toBe(jakartaDay())
 })
 
-test('tanggal pendapatan tersimpan per tab dan dikirim tanpa mengubah tanggal riwayat', async ({ page }) => {
+test('tanggal pendapatan tersimpan per tab dan dikirim tanpa mengubah tanggal riwayat', async ({
+  page,
+}) => {
   const calls = await mockAPI(page)
-  const date = page.getByRole('navigation', { name: 'Menu utama' }).getByLabel('Tanggal operasional (WIB)', { exact: true })
+  const date = page
+    .getByRole('navigation', { name: 'Menu utama' })
+    .getByLabel('Tanggal operasional (WIB)', { exact: true })
   await expect(date).toHaveValue(jakartaDay())
   await date.fill('2026-10-01')
   await page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }).click()
@@ -355,14 +584,18 @@ test('tanggal pendapatan tersimpan per tab dan dikirim tanpa mengubah tanggal ri
   await page.getByLabel('Uang diterima').fill('20000')
   await page.getByRole('button', { name: 'Selesaikan Pembayaran', exact: true }).click()
   await expect(page.getByRole('dialog')).toContainText('PEMBAYARAN BERHASIL')
-  expect(calls.find(call => call.path === '/penjualan')?.body.tanggal_pendapatan).toBe('2026-10-01')
+  expect(calls.find((call) => call.path === '/penjualan')?.body.tanggal_pendapatan).toBe(
+    '2026-10-01',
+  )
   await page.getByRole('button', { name: /Selesai.*Enter/ }).click()
   await expect(date).toHaveValue(jakartaDay())
   await page.getByRole('tab', { name: /Transaksi 2/ }).click()
   await expect(date).toHaveValue('2026-10-02')
 })
 
-test('nominal form baru kosong dan diskon serta tarif kosong dikirim sebagai nol', async ({ page }) => {
+test('nominal form baru kosong dan diskon serta tarif kosong dikirim sebagai nol', async ({
+  page,
+}) => {
   const calls = await mockAPI(page)
   const nav = page.getByRole('navigation', { name: 'Menu utama' })
   await nav.getByRole('button', { name: 'Produk', exact: true }).click()
@@ -373,7 +606,7 @@ test('nominal form baru kosong dan diskon serta tarif kosong dikirim sebagai nol
   await expect(price).toHaveValue('15.000')
   await price.fill('0,50')
   await expect(price).toHaveValue('0,50')
-  page.once('dialog', dialog => dialog.accept())
+  page.once('dialog', (dialog) => dialog.accept())
   await page.getByRole('button', { name: 'Tutup form produk', exact: true }).click()
   await page.locator('.pos-more > summary').click()
   await nav.getByRole('button', { name: 'Pembelian', exact: true }).click()
@@ -385,8 +618,10 @@ test('nominal form baru kosong dan diskon serta tarif kosong dikirim sebagai nol
   await page.getByRole('button', { name: /Simpan Pembelian · F8/ }).click()
   await page.getByRole('button', { name: 'Konfirmasi & Simpan', exact: true }).click()
   await expect(page.getByRole('dialog')).toContainText('Transaksi tersimpan')
-  expect(calls.find(call => call.path === '/pembelian')?.body.diskon_transaksi).toBe('0')
-  expect(calls.find(call => call.path === '/pembelian')?.body.items).toEqual([{ produk_id: 1, jumlah: '1', diskon: '0', harga_beli: '7000' }])
+  expect(calls.find((call) => call.path === '/pembelian')?.body.diskon_transaksi).toBe('0')
+  expect(calls.find((call) => call.path === '/pembelian')?.body.items).toEqual([
+    { produk_id: 1, jumlah: '1', diskon: '0', harga_beli: '7000' },
+  ])
   await page.getByRole('dialog').getByRole('button', { name: 'Selesai', exact: true }).click()
   await expect(page.getByLabel('Diskon transaksi', { exact: true })).toHaveValue('')
   await page.locator('.pos-more > summary').click()
@@ -397,8 +632,8 @@ test('nominal form baru kosong dan diskon serta tarif kosong dikirim sebagai nol
   await expect(page.getByLabel('Tarif tetap (Rp)', { exact: true })).toHaveValue('')
   await page.getByLabel('Nama metode', { exact: true }).fill('Metode tanpa biaya')
   await page.getByRole('button', { name: 'Simpan Metode', exact: true }).click()
-  await expect.poll(() => calls.filter(call => call.path === '/metode-pembayaran').length).toBe(1)
-  const method = calls.find(call => call.path === '/metode-pembayaran')!
+  await expect.poll(() => calls.filter((call) => call.path === '/metode-pembayaran').length).toBe(1)
+  const method = calls.find((call) => call.path === '/metode-pembayaran')!
   expect(method.body.tarif_tetap).toBe('0')
   expect(method.body.tarif_persen).toBe('0')
 })
@@ -415,9 +650,28 @@ for (const width of [320, 390, 768, 1440]) {
     expect(menuBounds!.x).toBeGreaterThan(drawerBounds!.x)
     await menu.click()
     await expect(page.getByRole('button', { name: 'Perangkat', exact: true })).toBeVisible()
-    expect(await page.locator('.pos-more-menu').evaluate(el => { const bounds = el.getBoundingClientRect(); return bounds.left >= 0 && bounds.right <= innerWidth })).toBe(true)
+    expect(
+      await page.locator('.pos-more-menu').evaluate((el) => {
+        const bounds = el.getBoundingClientRect()
+        return bounds.left >= 0 && bounds.right <= innerWidth
+      }),
+    ).toBe(true)
     await menu.click()
-    const noOverflow = async () => { const overflow = await page.evaluate(() => [...document.querySelectorAll('body *')].filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.right > innerWidth }).map(el => ({ class: el.className, right: el.getBoundingClientRect().right })).slice(0, 10)); expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), JSON.stringify(overflow)).toBe(true) }
+    const noOverflow = async () => {
+      const overflow = await page.evaluate(() =>
+        [...document.querySelectorAll('body *')]
+          .filter((el) => {
+            const r = el.getBoundingClientRect()
+            return r.width > 0 && r.right > innerWidth
+          })
+          .map((el) => ({ class: el.className, right: el.getBoundingClientRect().right }))
+          .slice(0, 10),
+      )
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+        JSON.stringify(overflow),
+      ).toBe(true)
+    }
     await noOverflow()
     await page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }).click()
     await expect(page.getByLabel('Jumlah Beras Ramos')).toHaveValue('1')
@@ -438,7 +692,10 @@ for (const width of [320, 390, 768, 1440]) {
     }
     await noOverflow()
     await page.screenshot({ path: `test-results/mobile-sales-${width}.png`, fullPage: true })
-    await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Produk', exact: true }).click()
+    await page
+      .getByRole('navigation', { name: 'Menu utama' })
+      .getByRole('button', { name: 'Produk', exact: true })
+      .click()
     await expect(page.getByRole('heading', { name: 'Daftar Produk', exact: true })).toBeVisible()
     await expect(page.getByLabel('Nama produk', { exact: true })).not.toBeVisible()
     await page.getByRole('button', { name: 'Tambah Produk', exact: true }).click()
@@ -457,9 +714,48 @@ for (const width of [320, 390, 768, 1440]) {
     await expect(productRow).toBeFocused()
     await noOverflow()
     await page.screenshot({ path: `test-results/mobile-products-${width}.png`, fullPage: true })
-    const transaction = { nama_kasir: 'Siti Kasir', id: 44, nomor: 'BILL-20261102-000044', tanggal: '2026-11-02T03:00:00Z', tanggal_pendapatan: '2026-11-01', status: 'SELESAI', metode_pembayaran_id: 1, total_tagihan: '10000', diskon_transaksi: '0', biaya_pembayaran: '0', jumlah_dibayar: '20000', kembalian: '10000', detail: [{ id: 1, nama_produk: 'Beras Ramos', jumlah: '1', harga_jual: '10000', diskon: '0', subtotal: '10000' }] }
-    await page.route('http://api.test/api/v1/penjualan**', route => route.fulfill({ json: { data: new URL(route.request().url()).pathname.endsWith('/44') ? transaction : [transaction] }, headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' } }))
-    await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Riwayat', exact: true }).click()
+    const transaction = {
+      nama_kasir: 'Siti Kasir',
+      id: 44,
+      nomor: 'BILL-20261102-000044',
+      tanggal: '2026-11-02T03:00:00Z',
+      tanggal_pendapatan: '2026-11-01',
+      status: 'SELESAI',
+      metode_pembayaran_id: 1,
+      total_tagihan: '10000',
+      diskon_transaksi: '0',
+      biaya_pembayaran: '0',
+      jumlah_dibayar: '20000',
+      kembalian: '10000',
+      detail: [
+        {
+          id: 1,
+          nama_produk: 'Beras Ramos',
+          jumlah: '1',
+          harga_jual: '10000',
+          diskon: '0',
+          subtotal: '10000',
+        },
+      ],
+    }
+    await page.route('http://api.test/api/v1/penjualan**', (route) =>
+      route.fulfill({
+        json: {
+          data: new URL(route.request().url()).pathname.endsWith('/44')
+            ? transaction
+            : [transaction],
+        },
+        headers: {
+          'Access-Control-Allow-Origin': 'http://127.0.0.1:3007',
+          'Access-Control-Allow-Credentials': 'true',
+          'Access-Control-Allow-Headers': 'Authorization,Content-Type',
+        },
+      }),
+    )
+    await page
+      .getByRole('navigation', { name: 'Menu utama' })
+      .getByRole('button', { name: 'Riwayat', exact: true })
+      .click()
     const row = page.getByRole('button', { name: `Detail ${transaction.nomor}`, exact: true })
     await expect(row).toBeVisible()
     await noOverflow()
@@ -482,16 +778,23 @@ for (const width of [320, 1440]) {
   test(`seluruh area tanggal operasional membuka kalender ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 })
     await page.addInitScript(() => {
-      Object.defineProperty(HTMLInputElement.prototype, 'showPicker', { configurable: true, value() {
-        this.dataset.pickerOpens = String(Number(this.dataset.pickerOpens ?? 0) + 1)
-      } })
+      Object.defineProperty(HTMLInputElement.prototype, 'showPicker', {
+        configurable: true,
+        value() {
+          this.dataset.pickerOpens = String(Number(this.dataset.pickerOpens ?? 0) + 1)
+        },
+      })
     })
     await mockAPI(page)
     const date = page.getByLabel('Tanggal operasional (WIB)', { exact: true })
     const control = page.locator('.pos-operating-date')
     const bounds = await control.boundingBox()
     expect(bounds).not.toBeNull()
-    const positions = [{ x: 5, y: 5 }, { x: bounds!.width / 2, y: bounds!.height / 2 }, { x: bounds!.width - 5, y: bounds!.height - 5 }]
+    const positions = [
+      { x: 5, y: 5 },
+      { x: bounds!.width / 2, y: bounds!.height / 2 },
+      { x: bounds!.width - 5, y: bounds!.height - 5 },
+    ]
     for (const [index, position] of positions.entries()) {
       await control.click({ position })
       await expect(date).toHaveAttribute('data-picker-opens', String(index + 1))
@@ -514,7 +817,9 @@ for (const width of [320, 390, 768, 1440]) {
     await page.setViewportSize({ width, height: 844 })
     const calls = await mockAPI(page)
     const noOverflow = async () => {
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      )
     }
     await expect(page.locator('.sale-product-top .lucide-plus')).toHaveCount(0)
     const nav = page.getByRole('navigation', { name: 'Menu utama' })
@@ -567,7 +872,7 @@ for (const width of [320, 390, 768, 1440]) {
     await noOverflow()
     await dialog.getByRole('button', { name: 'Konfirmasi & Simpan' }).click()
     await expect(dialog).toContainText('Transaksi tersimpan')
-    expect(calls.find(call => call.path === '/pembelian')?.body.sumber_pembelian_id).toBe(1)
+    expect(calls.find((call) => call.path === '/pembelian')?.body.sumber_pembelian_id).toBe(1)
     await dialog.getByRole('button', { name: 'Selesai', exact: true }).click()
     await page.getByLabel('Menu lainnya', { exact: true }).click()
     await nav.getByRole('button', { name: 'Data Master', exact: true }).click()
@@ -576,7 +881,9 @@ for (const width of [320, 390, 768, 1440]) {
     await page.getByRole('button', { name: 'Tempat Beli / Sales', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Daftar Tempat Beli / Sales' })).toBeVisible()
     await page.getByRole('button', { name: 'Edit Grosir Makmur', exact: true }).click()
-    await expect(page.getByLabel('Nama tempat beli / sales', { exact: true })).toHaveValue('Grosir Makmur')
+    await expect(page.getByLabel('Nama tempat beli / sales', { exact: true })).toHaveValue(
+      'Grosir Makmur',
+    )
     await expect(page.getByLabel('Nama tempat beli / sales', { exact: true })).toBeFocused()
     await noOverflow()
     await page.getByRole('button', { name: 'Tutup Edit Tempat Beli / Sales', exact: true }).click()
@@ -591,7 +898,9 @@ for (const width of [320, 390, 768, 1440]) {
     await expect(page.getByLabel('Nama metode', { exact: true })).toBeFocused()
     await noOverflow()
     await page.screenshot({ path: `test-results/master-payments-${width}.png`, fullPage: true })
-    const updateRequest = page.waitForRequest(request => request.method() === 'PUT' && request.url().endsWith('/metode-pembayaran/3'))
+    const updateRequest = page.waitForRequest(
+      (request) => request.method() === 'PUT' && request.url().endsWith('/metode-pembayaran/3'),
+    )
     await page.getByRole('button', { name: 'Simpan Metode', exact: true }).click()
     expect((await updateRequest).postDataJSON().nama).toBe('Transfer Supplier')
     await expect(page.getByRole('dialog')).toHaveCount(0)
@@ -640,7 +949,6 @@ test('tab mobile mendukung keyboard, pembayaran, dan pergantian ukuran layar', a
   await expect(page.getByRole('dialog')).toContainText('PEMBAYARAN BERHASIL')
 })
 
-
 for (const width of [390, 1440]) {
   test(`tanggal operasional masa depan bisa disimpan ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 })
@@ -650,7 +958,11 @@ for (const width of [390, 1440]) {
     await date.fill('2099-12-31')
     await expect(date).toHaveAttribute('aria-invalid', 'false')
     await page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }).click()
-    if (width < 1024) await page.getByRole('tablist', { name: 'Bagian penjualan' }).getByRole('tab', { name: /Keranjang/ }).click()
+    if (width < 1024)
+      await page
+        .getByRole('tablist', { name: 'Bagian penjualan' })
+        .getByRole('tab', { name: /Keranjang/ })
+        .click()
     await page.getByRole('button', { name: /^Bayar/ }).click()
     const dialog = page.getByRole('dialog')
     await expect(dialog).toContainText('31 Desember 2099')
@@ -658,16 +970,20 @@ for (const width of [390, 1440]) {
     await page.getByLabel('Uang diterima').fill('20000')
     await page.getByRole('button', { name: 'Selesaikan Pembayaran', exact: true }).click()
     await expect(dialog).toContainText('PEMBAYARAN BERHASIL')
-    expect(calls.find(call => call.path === '/penjualan')?.body.tanggal_pendapatan).toBe('2099-12-31')
+    expect(calls.find((call) => call.path === '/penjualan')?.body.tanggal_pendapatan).toBe(
+      '2099-12-31',
+    )
   })
 }
-
 
 for (const width of [390, 1440]) {
   test(`edit produk melalui baris dan simpan modal ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 })
     await mockAPI(page)
-    await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Produk', exact: true }).click()
+    await page
+      .getByRole('navigation', { name: 'Menu utama' })
+      .getByRole('button', { name: 'Produk', exact: true })
+      .click()
     const row = page.getByRole('button', { name: 'Edit Beras Ramos', exact: true })
     await row.focus()
     await page.keyboard.press('Enter')
@@ -679,11 +995,32 @@ for (const width of [390, 1440]) {
     await page.getByRole('option', { name: 'Sembako', exact: true }).click()
     let attempts = 0
     const payloads: Record<string, unknown>[] = []
-    await page.route('http://api.test/api/v1/produk/1', async route => {
-      if (route.request().method() === 'OPTIONS') { await route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'PUT,OPTIONS' } }); return }
+    await page.route('http://api.test/api/v1/produk/1', async (route) => {
+      if (route.request().method() === 'OPTIONS') {
+        await route.fulfill({
+          status: 204,
+          headers: {
+            'access-control-allow-origin': 'http://127.0.0.1:3007',
+            'access-control-allow-credentials': 'true',
+            'access-control-allow-headers': 'authorization,content-type',
+            'access-control-allow-methods': 'PUT,OPTIONS',
+          },
+        })
+        return
+      }
       payloads.push(route.request().postDataJSON())
       attempts++
-      await route.fulfill({ status: attempts === 1 ? 400 : 200, json: attempts === 1 ? { error: { message: 'Produk belum dapat disimpan' } } : { data: { id: 1, ...payloads.at(-1) } }, headers: { 'access-control-allow-origin': '*' } })
+      await route.fulfill({
+        status: attempts === 1 ? 400 : 200,
+        json:
+          attempts === 1
+            ? { error: { message: 'Produk belum dapat disimpan' } }
+            : { data: { id: 1, ...payloads.at(-1) } },
+        headers: {
+          'access-control-allow-origin': 'http://127.0.0.1:3007',
+          'access-control-allow-credentials': 'true',
+        },
+      })
     })
     await dialog.getByRole('button', { name: 'Simpan Produk', exact: true }).click()
     await expect(dialog.getByRole('alert')).toContainText('Produk belum dapat disimpan')
@@ -691,13 +1028,21 @@ for (const width of [390, 1440]) {
     await dialog.getByRole('button', { name: 'Simpan Produk', exact: true }).click()
     await expect(dialog).toHaveCount(0)
     await expect(page.getByRole('status')).toContainText('Produk tersimpan')
-    expect(payloads.at(-1)).toMatchObject({ nama: 'Beras Ramos', harga_jual: '12000', kategori_id: 1, satuan_id: 1 })
+    expect(payloads.at(-1)).toMatchObject({
+      nama: 'Beras Ramos',
+      harga_jual: '12000',
+      kategori_id: 1,
+      satuan_id: 1,
+    })
   })
 }
 
 test('kasir melihat daftar produk tanpa akses modal edit', async ({ page }) => {
   await mockAPI(page, 'KASIR')
-  await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Produk', exact: true }).click()
+  await page
+    .getByRole('navigation', { name: 'Menu utama' })
+    .getByRole('button', { name: 'Produk', exact: true })
+    .click()
   await expect(page.locator('.product-list-row')).toContainText('Beras Ramos')
   await expect(page.getByRole('button', { name: 'Edit Beras Ramos', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Tambah Produk', exact: true })).toHaveCount(0)
@@ -706,20 +1051,32 @@ test('kasir melihat daftar produk tanpa akses modal edit', async ({ page }) => {
 })
 
 for (const width of [320, 1440]) {
-  test(`pemilih tanggal riwayat seragam dengan tanggal operasional ${width}px`, async ({ page }) => {
+  test(`pemilih tanggal riwayat seragam dengan tanggal operasional ${width}px`, async ({
+    page,
+  }) => {
     await page.setViewportSize({ width, height: 844 })
     await page.addInitScript(() => {
-      Object.defineProperty(HTMLInputElement.prototype, 'showPicker', { configurable: true, value() {
-        this.dataset.pickerOpens = String(Number(this.dataset.pickerOpens ?? 0) + 1)
-      } })
+      Object.defineProperty(HTMLInputElement.prototype, 'showPicker', {
+        configurable: true,
+        value() {
+          this.dataset.pickerOpens = String(Number(this.dataset.pickerOpens ?? 0) + 1)
+        },
+      })
     })
     await mockAPI(page)
-    await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Riwayat', exact: true }).click()
+    await page
+      .getByRole('navigation', { name: 'Menu utama' })
+      .getByRole('button', { name: 'Riwayat', exact: true })
+      .click()
     const date = page.getByLabel('Tanggal penjualan (WIB)', { exact: true })
     await expect(date).toBeEnabled()
     const control = page.locator('.history-date-control')
     const bounds = (await control.boundingBox())!
-    for (const [index, position] of [{ x: 5, y: 5 }, { x: bounds.width / 2, y: bounds.height / 2 }, { x: bounds.width - 5, y: bounds.height - 5 }].entries()) {
+    for (const [index, position] of [
+      { x: 5, y: 5 },
+      { x: bounds.width / 2, y: bounds.height / 2 },
+      { x: bounds.width - 5, y: bounds.height - 5 },
+    ].entries()) {
       await control.click({ position })
       await expect(date).toHaveAttribute('data-picker-opens', String(index + 1))
       await page.keyboard.press('Escape')
@@ -728,14 +1085,21 @@ for (const width of [320, 1440]) {
     await expect(date).toHaveAttribute('data-picker-opens', '4')
     await date.press('Space')
     await expect(date).toHaveAttribute('data-picker-opens', '5')
-    const request = page.waitForRequest(request => request.method() === 'GET' && new URL(request.url()).searchParams.get('tanggal') === '2099-12-31')
+    const request = page.waitForRequest(
+      (request) =>
+        request.method() === 'GET' &&
+        new URL(request.url()).searchParams.get('tanggal') === '2099-12-31',
+    )
     await date.fill('2099-12-31')
     await request
     await expect(control).toContainText('31 Desember 2099')
     await expect(date).toBeEnabled()
     expect(await date.getAttribute('max')).toBeNull()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-    await page.screenshot({ path: `test-results/history-date-control-${width}.png`, fullPage: true })
+    await page.screenshot({
+      path: `test-results/history-date-control-${width}.png`,
+      fullPage: true,
+    })
     await page.getByRole('button', { name: 'Hari ini', exact: true }).click()
     await expect(date).toHaveValue(jakartaDay())
   })
@@ -748,29 +1112,45 @@ for (const width of [320, 390]) {
     const saleSearch = page.getByLabel('Cari atau scan produk penjualan', { exact: true })
     await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight))
     const visibleSearch = async (selector: string, minimumTop: number) => {
-      await expect.poll(async () => {
-        const bounds = (await page.locator(selector).boundingBox())!
-        return bounds.y >= minimumTop - 1 && bounds.y + bounds.height <= 620
-      }).toBe(true)
+      await expect
+        .poll(async () => {
+          const bounds = (await page.locator(selector).boundingBox())!
+          return bounds.y >= minimumTop - 1 && bounds.y + bounds.height <= 620
+        })
+        .toBe(true)
     }
     await visibleSearch('.sale-search', 65)
-    await page.locator('.sale-virtual-catalog').evaluate(element => { element.scrollTop = 1800 })
+    await page.locator('.sale-virtual-catalog').evaluate((element) => {
+      element.scrollTop = 1800
+    })
     await visibleSearch('.sale-search', 65)
     await saleSearch.fill('Beras')
-    await expect(page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true })).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }),
+    ).toBeVisible()
     await page.screenshot({ path: `test-results/sticky-sales-search-${width}.png` })
     await page.evaluate(() => scrollTo(0, 0))
     await page.getByLabel('Menu lainnya', { exact: true }).click()
-    await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Pembelian', exact: true }).click()
+    await page
+      .getByRole('navigation', { name: 'Menu utama' })
+      .getByRole('button', { name: 'Pembelian', exact: true })
+      .click()
     await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight))
     await visibleSearch('.purchase-search-area form', 65)
-    await page.locator('.purchase-products').evaluate(element => { element.scrollTop = 1800 })
+    await page.locator('.purchase-products').evaluate((element) => {
+      element.scrollTop = 1800
+    })
     await visibleSearch('.purchase-search-area form', 65)
     await page.getByLabel('Cari atau scan produk pembelian', { exact: true }).fill('Beras')
-    await expect(page.locator('.purchase-products').getByRole('button', { name: /Beras Ramos/ })).toBeVisible()
+    await expect(
+      page.locator('.purchase-products').getByRole('button', { name: /Beras Ramos/ }),
+    ).toBeVisible()
     await page.screenshot({ path: `test-results/sticky-purchase-search-${width}.png` })
     await page.evaluate(() => scrollTo(0, 0))
-    await page.getByRole('navigation', { name: 'Menu utama' }).getByRole('button', { name: 'Produk', exact: true }).click()
+    await page
+      .getByRole('navigation', { name: 'Menu utama' })
+      .getByRole('button', { name: 'Produk', exact: true })
+      .click()
     await page.evaluate(() => scrollTo(0, 1800))
     await visibleSearch('.product-search-bar', 0)
     expect((await page.locator('.product-search-bar').boundingBox())!.y).toBeLessThanOrEqual(1)
@@ -785,12 +1165,22 @@ for (const width of [320, 390]) {
 for (const width of [390, 1440]) {
   test(`loading daftar produk dan favorit terlihat ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 })
-    const initialResponse = page.waitForResponse(response => response.request().method() === 'GET' && new URL(response.url()).pathname === '/api/v1/master-data')
-    const initialCatalogResponse = page.waitForResponse(response => response.request().method() === 'GET' && new URL(response.url()).pathname === '/api/v1/katalog/produk')
+    const initialResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'GET' &&
+        new URL(response.url()).pathname === '/api/v1/master-data',
+    )
+    const initialCatalogResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'GET' &&
+        new URL(response.url()).pathname === '/api/v1/katalog/produk',
+    )
     await mockAPI(page)
     const initial = await (await initialResponse).json()
     const initialCatalog = await (await initialCatalogResponse).json()
-    await expect(page.getByRole('button', { name: 'Urutan produk penjualan', exact: true })).toBeHidden()
+    await expect(
+      page.getByRole('button', { name: 'Urutan produk penjualan', exact: true }),
+    ).toBeHidden()
     await expect(page.getByLabel('Utamakan favorit', { exact: true })).toBeHidden()
     await expect(page.getByRole('button', { name: 'Perbarui terlaris', exact: true })).toBeHidden()
     await expect(page.locator('.sale-result-count')).toBeHidden()
@@ -810,56 +1200,95 @@ for (const width of [390, 1440]) {
     await expect(sort).toContainText('Nama A–Z')
     await expect(page.getByLabel('Utamakan favorit', { exact: true })).toBeChecked()
     await options.locator('summary').click()
-    const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET,PUT,OPTIONS' }
+    const cors = {
+      'access-control-allow-origin': 'http://127.0.0.1:3007',
+      'access-control-allow-credentials': 'true',
+      'access-control-allow-headers': 'authorization,content-type',
+      'access-control-allow-methods': 'GET,PUT,OPTIONS',
+    }
     let releaseMaster!: () => void
-    const masterGate = new Promise<void>(resolve => { releaseMaster = resolve })
-    await page.route(/\/api\/v1\/master-data(?:\?refresh=true)?$/, async route => {
-      if (route.request().method() === 'OPTIONS') { await route.fulfill({ status: 204, headers: cors }); return }
+    const masterGate = new Promise<void>((resolve) => {
+      releaseMaster = resolve
+    })
+    await page.route(/\/api\/v1\/master-data(?:\?refresh=true)?$/, async (route) => {
+      if (route.request().method() === 'OPTIONS') {
+        await route.fulfill({ status: 204, headers: cors })
+        return
+      }
       await masterGate
       await route.fulfill({ json: initial, headers: cors })
     })
     await page.getByLabel('Menu lainnya', { exact: true }).click()
     await page.getByRole('button', { name: 'Muat ulang data', exact: true }).click()
-    await expect(page.locator('.sale-catalog').getByRole('status', { name: 'Memuat daftar produk' })).toBeVisible()
+    await expect(
+      page.locator('.sale-catalog').getByRole('status', { name: 'Memuat daftar produk' }),
+    ).toBeVisible()
     await expect(page.locator('.sale-no-products')).toHaveCount(0)
     await page.screenshot({ path: `test-results/product-loading-${width}.png` })
     const nav = page.getByRole('navigation', { name: 'Menu utama' })
     await nav.getByRole('button', { name: 'Produk', exact: true }).click()
-    await expect(page.locator('.product-list').getByRole('status', { name: 'Memuat daftar produk' })).toBeVisible()
+    await expect(
+      page.locator('.product-list').getByRole('status', { name: 'Memuat daftar produk' }),
+    ).toBeVisible()
     await expect(page.locator('.product-list-row')).toHaveCount(0)
     await page.getByLabel('Menu lainnya', { exact: true }).click()
     await nav.getByRole('button', { name: 'Pembelian', exact: true }).click()
-    await expect(page.locator('.purchase-products').getByRole('status', { name: 'Memuat daftar produk' })).toBeVisible()
+    await expect(
+      page.locator('.purchase-products').getByRole('status', { name: 'Memuat daftar produk' }),
+    ).toBeVisible()
     releaseMaster()
     await expect(page.locator('.purchase-products .product-loading')).toHaveCount(0)
     await nav.getByRole('button', { name: 'Penjualan', exact: true }).click()
     let releaseFavorite!: () => void
-    let favoriteGate = new Promise<void>(resolve => { releaseFavorite = resolve })
+    let favoriteGate = new Promise<void>((resolve) => {
+      releaseFavorite = resolve
+    })
     let fail = false
-    await page.route('http://api.test/api/v1/produk/1/favorit', async route => {
-      if (route.request().method() === 'OPTIONS') { await route.fulfill({ status: 204, headers: cors }); return }
+    await page.route('http://api.test/api/v1/produk/1/favorit', async (route) => {
+      if (route.request().method() === 'OPTIONS') {
+        await route.fulfill({ status: 204, headers: cors })
+        return
+      }
       await favoriteGate
       if (!fail) {
         initialCatalog.data.items[0].is_favorit = true
-        await page.route('http://api.test/api/v1/katalog/produk?**', route => route.fulfill({ json: initialCatalog, headers: cors }))
+        await page.route('http://api.test/api/v1/katalog/produk?**', (route) =>
+          route.fulfill({ json: initialCatalog, headers: cors }),
+        )
       }
-      await route.fulfill({ status: fail ? 500 : 200, json: fail ? { error: { message: 'Favorit belum tersimpan' } } : { data: initialCatalog.data.items[0] }, headers: cors })
+      await route.fulfill({
+        status: fail ? 500 : 200,
+        json: fail
+          ? { error: { message: 'Favorit belum tersimpan' } }
+          : { data: initialCatalog.data.items[0] },
+        headers: cors,
+      })
     })
     await page.getByRole('button', { name: 'Tandai favorit Beras Ramos', exact: true }).click()
-    await expect(page.getByRole('button', { name: 'Menyimpan favorit Beras Ramos', exact: true })).toHaveAttribute('aria-busy', 'true')
+    await expect(
+      page.getByRole('button', { name: 'Menyimpan favorit Beras Ramos', exact: true }),
+    ).toHaveAttribute('aria-busy', 'true')
     await expect(page.locator('.product-favorite-progress')).toBeVisible()
-    expect(await page.locator('.product-favorite-progress svg').evaluate(element => getComputedStyle(element).animationName)).toBe('product-loading-spin')
+    expect(
+      await page
+        .locator('.product-favorite-progress svg')
+        .evaluate((element) => getComputedStyle(element).animationName),
+    ).toBe('product-loading-spin')
     await page.screenshot({ path: `test-results/favorite-loading-${width}.png` })
     releaseFavorite()
     const favorite = page.getByRole('button', { name: 'Hapus favorit Beras Ramos', exact: true })
     await expect(favorite).toHaveAttribute('aria-pressed', 'true')
     await expect(page.locator('.product-favorite-progress')).toHaveCount(0)
     fail = true
-    favoriteGate = new Promise<void>(resolve => { releaseFavorite = resolve })
+    favoriteGate = new Promise<void>((resolve) => {
+      releaseFavorite = resolve
+    })
     await favorite.click()
     await expect(page.locator('.product-favorite-progress')).toBeVisible()
     releaseFavorite()
-    await expect(page.locator('.sale-page').getByRole('alert')).toContainText('Favorit belum tersimpan')
+    await expect(page.locator('.sale-page').getByRole('alert')).toContainText(
+      'Favorit belum tersimpan',
+    )
     await expect(favorite).toHaveAttribute('aria-pressed', 'true')
     await expect(favorite).toBeEnabled()
     await expect(page.locator('.product-favorite-progress')).toHaveCount(0)
@@ -867,24 +1296,36 @@ for (const width of [390, 1440]) {
 }
 
 for (const width of [390, 1440]) {
-  test(`daftar produk bertambah per 50 dan pencarian tetap lengkap ${width}px`, async ({ page }) => {
+  test(`daftar produk bertambah per 50 dan pencarian tetap lengkap ${width}px`, async ({
+    page,
+  }) => {
     await page.setViewportSize({ width, height: 844 })
     await mockAPI(page, 'PEMILIK', false, '10', 125)
     const saleSpace = page.locator('.sale-virtual-space')
     const saleScroller = page.locator('.sale-virtual-catalog')
     await expect(saleSpace).toHaveAttribute('data-loaded-count', '50')
     expect(await page.locator('.sale-product').count()).toBeLessThanOrEqual(50)
-    await saleScroller.evaluate(element => { element.scrollTop = element.scrollHeight })
+    await saleScroller.evaluate((element) => {
+      element.scrollTop = element.scrollHeight
+    })
     await expect(saleSpace).toHaveAttribute('data-loaded-count', '100')
-    expect(await saleScroller.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
-    await saleScroller.evaluate(element => { element.scrollTop = element.scrollHeight })
+    expect(await saleScroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+    await saleScroller.evaluate((element) => {
+      element.scrollTop = element.scrollHeight
+    })
     await expect(saleSpace).toHaveAttribute('data-loaded-count', '125')
-    await saleScroller.evaluate(element => { element.scrollTop = element.scrollHeight })
-    await expect(page.getByRole('button', { name: 'Tambah Produk Uji 125 ke keranjang', exact: true })).toBeVisible()
+    await saleScroller.evaluate((element) => {
+      element.scrollTop = element.scrollHeight
+    })
+    await expect(
+      page.getByRole('button', { name: 'Tambah Produk Uji 125 ke keranjang', exact: true }),
+    ).toBeVisible()
     const saleSearch = page.getByLabel('Cari atau scan produk penjualan', { exact: true })
     await saleSearch.fill('TEST-120')
     await expect(page.locator('.sale-product')).toHaveCount(1)
-    await expect(page.getByRole('button', { name: 'Tambah Produk Uji 120 ke keranjang', exact: true })).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: 'Tambah Produk Uji 120 ke keranjang', exact: true }),
+    ).toBeVisible()
     await saleSearch.fill('')
     await expect(saleSpace).toHaveAttribute('data-loaded-count', '50')
     await saleSearch.focus()
@@ -892,7 +1333,11 @@ for (const width of [390, 1440]) {
     await expect(saleSpace).toHaveAttribute('data-loaded-count', '100')
     await saleSearch.fill('1000000000124')
     await saleSearch.press('Enter')
-    if (width < 1024) await page.getByRole('tablist', { name: 'Bagian penjualan' }).getByRole('tab', { name: /Keranjang/ }).click()
+    if (width < 1024)
+      await page
+        .getByRole('tablist', { name: 'Bagian penjualan' })
+        .getByRole('tab', { name: /Keranjang/ })
+        .click()
     await expect(page.getByLabel('Jumlah Produk Uji 125', { exact: true })).toHaveValue('1')
     await page.evaluate(() => scrollTo(0, 0))
     const nav = page.getByRole('navigation', { name: 'Menu utama' })
@@ -901,10 +1346,14 @@ for (const width of [390, 1440]) {
     const purchaseScroller = page.locator('.purchase-products')
     await expect(purchaseScroller.locator(':scope > button')).toHaveCount(50)
     await expect(page.locator('.stock-list-row')).toHaveCount(50)
-    await purchaseScroller.evaluate(element => { element.scrollTop = element.scrollHeight })
+    await purchaseScroller.evaluate((element) => {
+      element.scrollTop = element.scrollHeight
+    })
     await expect(purchaseScroller.locator(':scope > button')).toHaveCount(100)
-    expect(await purchaseScroller.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
-    await purchaseScroller.evaluate(element => { element.scrollTop = element.scrollHeight })
+    expect(await purchaseScroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+    await purchaseScroller.evaluate((element) => {
+      element.scrollTop = element.scrollHeight
+    })
     await expect(purchaseScroller.locator(':scope > button')).toHaveCount(125)
     await expect(purchaseScroller.locator('.product-page-end')).toHaveCount(0)
     const purchaseSearch = page.getByLabel('Cari atau scan produk pembelian', { exact: true })
@@ -914,8 +1363,14 @@ for (const width of [390, 1440]) {
     await expect(purchaseScroller.locator(':scope > button')).toHaveCount(50)
     await purchaseSearch.fill('1000000000124')
     await purchaseSearch.press('Enter')
-    if (width < 1024) await page.getByRole('tablist', { name: 'Bagian pembelian' }).getByRole('tab', { name: /Keranjang/ }).click()
-    await expect(page.locator('.purchase-cart').getByLabel('Jumlah Produk Uji 125', { exact: true })).toHaveValue('1')
+    if (width < 1024)
+      await page
+        .getByRole('tablist', { name: 'Bagian pembelian' })
+        .getByRole('tab', { name: /Keranjang/ })
+        .click()
+    await expect(
+      page.locator('.purchase-cart').getByLabel('Jumlah Produk Uji 125', { exact: true }),
+    ).toHaveValue('1')
     await page.evaluate(() => scrollTo(0, 0))
     await nav.getByRole('button', { name: 'Produk', exact: true }).click()
     const rows = page.locator('.product-list-row')
@@ -935,23 +1390,45 @@ for (const width of [390, 1440]) {
   })
 }
 
-for (const viewport of [{ width: 1920, height: 1080 }, { width: 2560, height: 1440 }, { width: 3440, height: 1440 }, { width: 3840, height: 2160 }]) {
-  test(`area kerja memakai lebar layar besar ${viewport.width}x${viewport.height}`, async ({ page }) => {
+for (const viewport of [
+  { width: 1920, height: 1080 },
+  { width: 2560, height: 1440 },
+  { width: 3440, height: 1440 },
+  { width: 3840, height: 2160 },
+]) {
+  test(`area kerja memakai lebar layar besar ${viewport.width}x${viewport.height}`, async ({
+    page,
+  }) => {
     await page.setViewportSize(viewport)
     await mockAPI(page, 'PEMILIK', false, '10', 125)
     const fullWidth = async (selector: string) => {
-      await expect.poll(async () => Math.round((await page.locator(selector).boundingBox())!.width) - await page.evaluate(() => document.documentElement.clientWidth)).toBe(0)
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      await expect
+        .poll(
+          async () =>
+            Math.round((await page.locator(selector).boundingBox())!.width) -
+            (await page.evaluate(() => document.documentElement.clientWidth)),
+        )
+        .toBe(0)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      )
     }
     await fullWidth('.sale-layout')
     await fullWidth('.pos-topbar-inner')
     const layout = (await page.locator('.sale-layout').boundingBox())!
     expect(Math.abs(layout.y + layout.height - viewport.height)).toBeLessThanOrEqual(1)
-    const columns = await page.locator('.sale-product-row').first().evaluate(element => getComputedStyle(element).gridTemplateColumns.split(' ').length)
+    const columns = await page
+      .locator('.sale-product-row')
+      .first()
+      .evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length)
     expect(columns).toBeGreaterThanOrEqual(viewport.width >= 2560 ? 5 : 4)
     if (viewport.height >= 2160) {
       // More than 50 cards can fit on a tall monitor; paging must not get stuck.
-      await expect.poll(async () => Number(await page.locator('.sale-virtual-space').getAttribute('data-loaded-count'))).toBeGreaterThan(50)
+      await expect
+        .poll(async () =>
+          Number(await page.locator('.sale-virtual-space').getAttribute('data-loaded-count')),
+        )
+        .toBeGreaterThan(50)
     }
     await page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }).click()
     await expect(page.getByLabel('Jumlah Beras Ramos', { exact: true })).toHaveValue('1')
@@ -982,7 +1459,9 @@ for (const viewport of [{ width: 1920, height: 1080 }, { width: 2560, height: 14
   })
 }
 
-test('resize layar mempertahankan rasio panel dan keranjang serta akses produk terakhir', async ({ page }) => {
+test('resize layar mempertahankan rasio panel dan keranjang serta akses produk terakhir', async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 2560, height: 1440 })
   await mockAPI(page, 'PEMILIK', false, '10', 500)
   await page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }).click()
@@ -991,18 +1470,32 @@ test('resize layar mempertahankan rasio panel dan keranjang serta akses produk t
   await page.keyboard.press('Home')
   await expect(divider).toHaveAttribute('aria-valuenow', '20')
   await page.setViewportSize({ width: 1024, height: 768 })
-  await expect.poll(async () => Number(await divider.getAttribute('aria-valuenow'))).toBeGreaterThan(20)
+  await expect
+    .poll(async () => Number(await divider.getAttribute('aria-valuenow')))
+    .toBeGreaterThan(20)
   await page.setViewportSize({ width: 3840, height: 2160 })
   await expect(divider).toHaveAttribute('aria-valuenow', '20')
   await expect(page.getByLabel('Jumlah Beras Ramos', { exact: true })).toHaveValue('1')
   const space = page.locator('.sale-virtual-space')
-  for (let attempt = 0; attempt < 12 && Number(await space.getAttribute('data-loaded-count')) < 500; attempt++) {
+  for (
+    let attempt = 0;
+    attempt < 12 && Number(await space.getAttribute('data-loaded-count')) < 500;
+    attempt++
+  ) {
     const previous = Number(await space.getAttribute('data-loaded-count'))
-    await page.locator('.sale-virtual-catalog').evaluate(element => { element.scrollTop = element.scrollHeight })
-    await expect.poll(async () => Number(await space.getAttribute('data-loaded-count'))).toBeGreaterThan(previous)
+    await page.locator('.sale-virtual-catalog').evaluate((element) => {
+      element.scrollTop = element.scrollHeight
+    })
+    await expect
+      .poll(async () => Number(await space.getAttribute('data-loaded-count')))
+      .toBeGreaterThan(previous)
   }
-  await page.locator('.sale-virtual-catalog').evaluate(element => { element.scrollTop = element.scrollHeight })
-  await expect(page.getByRole('button', { name: 'Tambah Produk Uji 500 ke keranjang', exact: true })).toBeVisible()
+  await page.locator('.sale-virtual-catalog').evaluate((element) => {
+    element.scrollTop = element.scrollHeight
+  })
+  await expect(
+    page.getByRole('button', { name: 'Tambah Produk Uji 500 ke keranjang', exact: true }),
+  ).toBeVisible()
   expect(await page.locator('.sale-product').count()).toBeLessThan(500)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.screenshot({ path: 'test-results/wide-sales-resized.png' })
@@ -1016,7 +1509,9 @@ test('4275 produk tetap membuka daftar dengan maksimal 50 baris', async ({ page 
   const nav = page.getByRole('navigation', { name: 'Menu utama' })
   await nav.getByRole('button', { name: 'Produk', exact: true }).click()
   await expect(page.locator('.product-list-row')).toHaveCount(50)
-  await expect(page.getByText('50 produk ditampilkan · gulir untuk lainnya', { exact: true })).toBeVisible()
+  await expect(
+    page.getByText('50 produk ditampilkan · gulir untuk lainnya', { exact: true }),
+  ).toBeVisible()
   await page.getByLabel('Cari daftar produk', { exact: true }).fill('TEST-4275')
   await expect(page.locator('.product-list-row')).toHaveCount(1)
   await expect(page.locator('.product-list-row')).toContainText('Produk Uji 4275')
@@ -1046,29 +1541,46 @@ test.describe('mobile sales workspace scroll', () => {
         await page.mouse.wheel(0, delta)
       }
       await page.evaluate(() => scrollTo(0, 0))
-      await catalog.evaluate(node => { node.scrollTop = 0 })
+      await catalog.evaluate((node) => {
+        node.scrollTop = 0
+      })
       expect((await tabs.boundingBox())!.y).toBeGreaterThan(100)
       await wheelInside('.sale-virtual-catalog', 1000)
       await expect.poll(async () => Math.round((await tabs.boundingBox())!.y)).toBe(0)
-      expect(await page.locator('.pos-topbar').evaluate(node => node.getBoundingClientRect().bottom)).toBeLessThanOrEqual(1)
-      await expect.poll(() => catalog.evaluate(node => node.scrollTop)).toBeGreaterThan(0)
+      expect(
+        await page.locator('.pos-topbar').evaluate((node) => node.getBoundingClientRect().bottom),
+      ).toBeLessThanOrEqual(1)
+      await expect.poll(() => catalog.evaluate((node) => node.scrollTop)).toBeGreaterThan(0)
       const stickySearch = (await page.locator('.sale-search-area').boundingBox())!
-      const panelInset = await page.locator('.sale-layout').evaluate(node => parseFloat(getComputedStyle(node).paddingTop) + 1)
-      expect(Math.abs(stickySearch.y - (await tabs.boundingBox())!.height)).toBeLessThanOrEqual(panelInset)
+      const panelInset = await page
+        .locator('.sale-layout')
+        .evaluate((node) => parseFloat(getComputedStyle(node).paddingTop) + 1)
+      expect(Math.abs(stickySearch.y - (await tabs.boundingBox())!.height)).toBeLessThanOrEqual(
+        panelInset,
+      )
       await wheelInside('.sale-virtual-catalog', 600)
       await expect.poll(async () => Math.round((await tabs.boundingBox())!.y)).toBe(0)
 
       const search = page.getByLabel('Cari atau scan produk penjualan', { exact: true })
-      for (let id = 2; id <= 15; id++) { await search.fill(`TEST-${id}`); await search.press('Enter') }
+      for (let id = 2; id <= 15; id++) {
+        await search.fill(`TEST-${id}`)
+        await search.press('Enter')
+      }
       await tabs.getByRole('tab', { name: /Keranjang/ }).click()
-      await page.locator('.sale-cart-body').evaluate(node => { node.scrollTop = 0 })
+      await page.locator('.sale-cart-body').evaluate((node) => {
+        node.scrollTop = 0
+      })
       await page.evaluate(() => scrollTo(0, 0))
       expect((await tabs.boundingBox())!.y).toBeGreaterThan(100)
       await wheelInside('.sale-cart-body', 1000)
       await expect.poll(async () => Math.round((await tabs.boundingBox())!.y)).toBe(0)
-      await expect.poll(() => page.locator('.sale-cart-body').evaluate(node => node.scrollTop)).toBeGreaterThan(0)
+      await expect
+        .poll(() => page.locator('.sale-cart-body').evaluate((node) => node.scrollTop))
+        .toBeGreaterThan(0)
       await expect(page.getByRole('button', { name: /Bayar/ })).toBeInViewport()
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      )
       await page.screenshot({ path: `test-results/mobile-sales-cart-pinned-${width}.png` })
       await tabs.getByRole('tab', { name: 'Produk', exact: true }).click()
       await expect.poll(async () => Math.round((await tabs.boundingBox())!.y)).toBe(0)
@@ -1077,26 +1589,43 @@ test.describe('mobile sales workspace scroll', () => {
     })
   }
 
-  test('satu swipe sentuh menaikkan header lalu melanjutkan scroll produk', async ({ page, context }) => {
+  test('satu swipe sentuh menaikkan header lalu melanjutkan scroll produk', async ({
+    page,
+    context,
+  }) => {
     await page.setViewportSize({ width: 390, height: 720 })
     await mockAPI(page, 'PEMILIK', false, '10', 125)
     await page.evaluate(() => scrollTo(0, 0))
     const bounds = (await page.locator('.sale-virtual-catalog').boundingBox())!
     const session = await context.newCDPSession(page)
-    const x = Math.round(bounds.x + bounds.width / 2), y = Math.min(685, Math.round(bounds.y + 70))
+    const x = Math.round(bounds.x + bounds.width / 2),
+      y = Math.min(685, Math.round(bounds.y + 70))
     await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
     for (let distance = 30; distance <= 390; distance += 30) {
-      await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y - distance }] })
+      await session.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [{ x, y: y - distance }],
+      })
     }
     await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
-    await expect.poll(async () => Math.round((await page.getByRole('tablist', { name: 'Bagian penjualan' }).boundingBox())!.y)).toBe(0)
-    await expect.poll(() => page.locator('.sale-virtual-catalog').evaluate(node => node.scrollTop)).toBeGreaterThan(0)
+    await expect
+      .poll(async () =>
+        Math.round(
+          (await page.getByRole('tablist', { name: 'Bagian penjualan' }).boundingBox())!.y,
+        ),
+      )
+      .toBe(0)
+    await expect
+      .poll(() => page.locator('.sale-virtual-catalog').evaluate((node) => node.scrollTop))
+      .toBeGreaterThan(0)
     await session.detach()
   })
 })
 
 for (const width of [390, 1440]) {
-  test(`hover produk tetap mengikuti mouse setelah klik tanpa sorotan ganda ${width}px`, async ({ page }) => {
+  test(`hover produk tetap mengikuti mouse setelah klik tanpa sorotan ganda ${width}px`, async ({
+    page,
+  }) => {
     await page.setViewportSize({ width, height: 844 })
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await mockAPI(page, 'PEMILIK', false, '10', 3)
@@ -1108,8 +1637,18 @@ for (const width of [390, 1440]) {
     const expectSelected = async (index: number) => {
       await expect(selected).toHaveCount(1)
       await expect(cards.nth(index)).toHaveAttribute('data-highlighted', 'true')
-      const color = await cards.nth(index).evaluate(node => getComputedStyle(node).backgroundColor)
-      await expect.poll(() => cards.evaluateAll((nodes, color) => nodes.filter(node => getComputedStyle(node).backgroundColor === color).length, color)).toBe(1)
+      const color = await cards
+        .nth(index)
+        .evaluate((node) => getComputedStyle(node).backgroundColor)
+      await expect
+        .poll(() =>
+          cards.evaluateAll(
+            (nodes, color) =>
+              nodes.filter((node) => getComputedStyle(node).backgroundColor === color).length,
+            color,
+          ),
+        )
+        .toBe(1)
     }
     await first.hover()
     await expectSelected(0)
@@ -1139,22 +1678,73 @@ test.describe('pilihan produk mobile', () => {
   test('tap produk di awal daftar hanya menyorot satu kartu', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await mockAPI(page)
-    const base = { sku: 'BR-001', barcode: null, harga_jual: '10000', stok_minimum: '0', kategori_id: 1, satuan_id: 1, aktif: true }
-    await page.route('http://api.test/api/v1/master-data', route => route.fulfill({
-      headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization,content-type' },
-      json: { data: { version: '2', categories: [{ id: 1, nama: 'Sembako' }], units: [{ id: 1, nama: 'pcs' }], payments: [{ id: 1, nama: 'Tunai', jenis: 'CASH', aktif: true, untuk_penjualan: true, tarif_persen: '0', tarif_tetap: '0', penanggung_biaya: 'TOKO' }], sources: [] } },
-    }))
-    await page.route('http://api.test/api/v1/katalog/produk?**', route => route.fulfill({
-      headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization,content-type' },
-      json: { data: catalogFixture([{ ...base, id: 1, nama: 'Beras Ramos' }, { ...base, id: 2, sku: 'MG-002', nama: 'Minyak Goreng' }], new URL(route.request().url()).searchParams, '2') },
-    }))
+    const base = {
+      sku: 'BR-001',
+      barcode: null,
+      harga_jual: '10000',
+      stok_minimum: '0',
+      kategori_id: 1,
+      satuan_id: 1,
+      aktif: true,
+    }
+    await page.route('http://api.test/api/v1/master-data', (route) =>
+      route.fulfill({
+        headers: {
+          'access-control-allow-origin': 'http://127.0.0.1:3007',
+          'access-control-allow-credentials': 'true',
+          'access-control-allow-headers': 'authorization,content-type',
+        },
+        json: {
+          data: {
+            version: '2',
+            categories: [{ id: 1, nama: 'Sembako' }],
+            units: [{ id: 1, nama: 'pcs' }],
+            payments: [
+              {
+                id: 1,
+                nama: 'Tunai',
+                jenis: 'CASH',
+                aktif: true,
+                untuk_penjualan: true,
+                tarif_persen: '0',
+                tarif_tetap: '0',
+                penanggung_biaya: 'TOKO',
+              },
+            ],
+            sources: [],
+          },
+        },
+      }),
+    )
+    await page.route('http://api.test/api/v1/katalog/produk?**', (route) =>
+      route.fulfill({
+        headers: {
+          'access-control-allow-origin': 'http://127.0.0.1:3007',
+          'access-control-allow-credentials': 'true',
+          'access-control-allow-headers': 'authorization,content-type',
+        },
+        json: {
+          data: catalogFixture(
+            [
+              { ...base, id: 1, nama: 'Beras Ramos' },
+              { ...base, id: 2, sku: 'MG-002', nama: 'Minyak Goreng' },
+            ],
+            new URL(route.request().url()).searchParams,
+            '2',
+          ),
+        },
+      }),
+    )
     await page.reload()
     const cards = page.locator('.sale-product')
     await expect(cards).toHaveCount(2)
     const first = cards.nth(0)
     await expect(first).toHaveAttribute('data-highlighted', 'true')
-    const selectionColor = await first.evaluate(node => getComputedStyle(node).backgroundColor)
-    const second = page.getByRole('button', { name: 'Tambah Minyak Goreng ke keranjang', exact: true })
+    const selectionColor = await first.evaluate((node) => getComputedStyle(node).backgroundColor)
+    const second = page.getByRole('button', {
+      name: 'Tambah Minyak Goreng ke keranjang',
+      exact: true,
+    })
     await page.getByLabel('Cari atau scan produk penjualan').focus()
     await second.tap()
     await expect(page.getByLabel('Jumlah Minyak Goreng', { exact: true })).toHaveValue('1')
@@ -1169,7 +1759,13 @@ test.describe('pilihan produk mobile', () => {
     await expect(page.getByLabel('Jumlah Beras Ramos', { exact: true })).toHaveCount(0)
     await expect(second).toHaveAttribute('data-highlighted', 'true')
     await expect(first).toHaveAttribute('data-highlighted', 'false')
-    await expect.poll(() => cards.evaluateAll(nodes => new Set(nodes.map(node => getComputedStyle(node).backgroundColor)).size)).toBe(2)
+    await expect
+      .poll(() =>
+        cards.evaluateAll(
+          (nodes) => new Set(nodes.map((node) => getComputedStyle(node).backgroundColor)).size,
+        ),
+      )
+      .toBe(2)
     await first.tap()
     await expect(first).toHaveAttribute('data-highlighted', 'true')
     await expect(second).toHaveAttribute('data-highlighted', 'false')
@@ -1189,4 +1785,142 @@ test.describe('pilihan produk mobile', () => {
     await search.press('Enter')
     await expect(page.getByLabel('Jumlah Minyak Goreng', { exact: true })).toHaveValue('4')
   })
+})
+
+test('access JWT kedaluwarsa saat bayar otomatis refresh lalu meneruskan transaksi sekali', async ({
+  page,
+}) => {
+  const accepted = await mockAPI(page)
+  let refreshes = 0
+  await page.route('http://api.test/api/v1/auth/refresh', async (route) => {
+    refreshes++
+    await route.fulfill({
+      headers: {
+        'access-control-allow-origin': 'http://127.0.0.1:3007',
+        'access-control-allow-credentials': 'true',
+      },
+      json: {
+        data: {
+          user: { id: 1, nama: 'Kasir Test', peran: 'PEMILIK' },
+          access_token: 'test.jwt.signature',
+          expires_at: new Date(Date.now() + 1800000).toISOString(),
+          session_expires_at: new Date(Date.now() + 17 * 3600000).toISOString(),
+        },
+      },
+    })
+  })
+  const attempts: unknown[] = []
+  await page.route('http://api.test/api/v1/penjualan', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    attempts.push(route.request().postDataJSON())
+    if (attempts.length === 1) {
+      await route.fulfill({
+        status: 401,
+        headers: {
+          'access-control-allow-origin': 'http://127.0.0.1:3007',
+          'access-control-allow-credentials': 'true',
+        },
+        json: { error: { code: 'ACCESS_TOKEN_EXPIRED', message: 'Access token kedaluwarsa' } },
+      })
+    } else await route.fallback()
+  })
+  await page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }).click()
+  await page.getByRole('button', { name: /Bayar.*F8/ }).click()
+  await page.getByRole('dialog').getByLabel('Print struk setelah pembayaran').uncheck()
+  await page.getByLabel('Uang diterima').fill('20000')
+  await page.getByRole('button', { name: 'Selesaikan Pembayaran' }).click()
+  await expect(page.getByText('BILL-20261028-230000-1', { exact: true })).toBeVisible()
+  expect(refreshes).toBe(1)
+  expect(attempts).toHaveLength(2)
+  expect(attempts[0]).toEqual(attempts[1])
+  expect(accepted.filter((call) => call.path === '/penjualan')).toHaveLength(1)
+  await expect(page.getByRole('navigation', { name: 'Menu utama' })).toBeVisible()
+})
+
+test('reload dengan access token habis memulihkan sesi dan menjaga keranjang', async ({ page }) => {
+  await mockAPI(page)
+  let refreshes = 0
+  await page.route('http://api.test/api/v1/auth/refresh', async (route) => {
+    refreshes++
+    await route.fulfill({
+      headers: {
+        'access-control-allow-origin': 'http://127.0.0.1:3007',
+        'access-control-allow-credentials': 'true',
+      },
+      json: {
+        data: {
+          user: { id: 1, nama: 'Kasir Test', peran: 'PEMILIK' },
+          access_token: 'test.jwt.signature',
+          expires_at: new Date(Date.now() + 1800000).toISOString(),
+          session_expires_at: new Date(Date.now() + 17 * 3600000).toISOString(),
+        },
+      },
+    })
+  })
+  await page.getByRole('button', { name: 'Tambah Beras Ramos ke keranjang', exact: true }).click()
+  await expect(page.getByLabel('Jumlah Beras Ramos')).toHaveValue('1')
+  await page.evaluate(() => {
+    const stored = JSON.parse(sessionStorage.getItem('toko:login')!)
+    stored.expires_at = new Date(Date.now() - 1000).toISOString()
+    sessionStorage.setItem('toko:login', JSON.stringify(stored))
+  })
+  await page.reload()
+  await expect(page.getByRole('navigation', { name: 'Menu utama' })).toBeVisible()
+  await expect(page.getByLabel('Jumlah Beras Ramos')).toHaveValue('1')
+  expect(refreshes).toBe(1)
+})
+
+test('dua tab menserialisasi refresh dan logout berlaku pada keduanya', async ({
+  page,
+  context,
+}) => {
+  await mockAPI(page)
+  const second = await context.newPage()
+  await mockAPI(second, 'PEMILIK', false, '10', 1, false)
+  let active = 0,
+    maximum = 0,
+    refreshes = 0
+  for (const tab of [page, second]) {
+    await tab.route('http://api.test/api/v1/auth/refresh', async (route) => {
+      active++
+      refreshes++
+      maximum = Math.max(maximum, active)
+      await new Promise((resolve) => setTimeout(resolve, 80))
+      await route.fulfill({
+        headers: {
+          'access-control-allow-origin': 'http://127.0.0.1:3007',
+          'access-control-allow-credentials': 'true',
+        },
+        json: {
+          data: {
+            user: { id: 1, nama: 'Kasir Test', peran: 'PEMILIK' },
+            access_token: 'test.jwt.signature',
+            expires_at: new Date(Date.now() + 1800000).toISOString(),
+            session_expires_at: new Date(Date.now() + 17 * 3600000).toISOString(),
+          },
+        },
+      })
+      active--
+    })
+  }
+  await second.goto('/')
+  await expect(second.getByRole('navigation', { name: 'Menu utama' })).toBeVisible()
+  refreshes = 0
+  maximum = 0
+  for (const tab of [page, second]) {
+    await tab.evaluate(() => {
+      const session = JSON.parse(sessionStorage.getItem('toko:login')!)
+      session.expires_at = new Date(Date.now() - 1000).toISOString()
+      sessionStorage.setItem('toko:login', JSON.stringify(session))
+    })
+  }
+  await Promise.all([page.reload(), second.reload()])
+  await expect(page.getByRole('navigation', { name: 'Menu utama' })).toBeVisible()
+  await expect(second.getByRole('navigation', { name: 'Menu utama' })).toBeVisible()
+  expect(refreshes).toBe(2)
+  expect(maximum).toBe(1)
+  await page.getByLabel('Menu lainnya', { exact: true }).click()
+  await page.getByRole('button', { name: 'Keluar', exact: true }).click()
+  await expect(page.getByLabel('Username', { exact: true })).toBeVisible()
+  await expect(second.getByLabel('Username', { exact: true })).toBeVisible()
 })

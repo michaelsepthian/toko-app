@@ -7,23 +7,57 @@ async function setup(page: Page) {
   let release = () => {}
   let gate: Promise<void> | null = null
   let fail = false
-  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET,POST,PUT,OPTIONS' }
-  await page.route('http://api.test/api/v1/**', async route => {
-    const request = route.request(), path = new URL(request.url()).pathname.replace('/api/v1', '')
-    if (request.method() === 'OPTIONS') { await route.fulfill({ status: 204, headers: cors }); return }
+  const cors = {
+    'access-control-allow-origin': 'http://127.0.0.1:3007',
+    'access-control-allow-credentials': 'true',
+    'access-control-allow-headers': 'authorization,content-type',
+    'access-control-allow-methods': 'GET,POST,PUT,OPTIONS',
+  }
+  await page.route('http://api.test/api/v1/**', async (route) => {
+    const request = route.request(),
+      path = new URL(request.url()).pathname.replace('/api/v1', '')
+    if (request.method() === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: cors })
+      return
+    }
+    if (path === '/auth/refresh') {
+      await route.fulfill({
+        status: 401,
+        headers: cors,
+        json: { error: { code: 'SESSION_INVALID', message: 'Sesi berakhir' } },
+      })
+      return
+    }
     let data: unknown = []
     if (path.startsWith('/sumber-pembelian') && request.method() !== 'GET') {
-      const body = request.postDataJSON(); calls.push({ path, body })
+      const body = request.postDataJSON()
+      calls.push({ path, body })
       await gate
-      if (fail) { fail = false; await route.fulfill({ status: 500, headers: cors, json: { error: { message: 'Gagal menyimpan, coba lagi.' } } }); return }
+      if (fail) {
+        fail = false
+        await route.fulfill({
+          status: 500,
+          headers: cors,
+          json: { error: { message: 'Gagal menyimpan, coba lagi.' } },
+        })
+        return
+      }
       if (request.method() === 'POST') sources.push({ id: sources.length + 1, ...body })
       else Object.assign(sources[0], body)
       data = sources.at(-1)
     } else if (path === '/setup') data = { initialized: true, registration_open: false }
-    else if (path === '/auth/login') data = { user, access_token: 'toko_' + 'a'.repeat(64), expires_at: new Date(Date.now() + 3600000).toISOString() }
+    else if (path === '/auth/login')
+      data = {
+        user,
+        access_token: 'test.jwt.signature',
+        expires_at: new Date(Date.now() + 1800000).toISOString(),
+        session_expires_at: new Date(Date.now() + 17 * 3600000).toISOString(),
+      }
     else if (path === '/me') data = user
-    else if (path === '/master-data') data = { version: String(calls.length + 1), categories: [], units: [], payments: [], sources }
-    else if (path === '/katalog/produk') data = { items: [], has_next: false, next_cursor: null, version: String(calls.length + 1) }
+    else if (path === '/master-data')
+      data = { version: String(calls.length + 1), categories: [], units: [], payments: [], sources }
+    else if (path === '/katalog/produk')
+      data = { items: [], has_next: false, next_cursor: null, version: String(calls.length + 1) }
     else if (path === '/master-data/version') data = { version: String(calls.length + 1) }
     await route.fulfill({ headers: cors, json: { data } })
   })
@@ -34,7 +68,18 @@ async function setup(page: Page) {
   await page.getByLabel('Menu lainnya', { exact: true }).click()
   await page.getByRole('button', { name: 'Data Master', exact: true }).click()
   await page.getByRole('button', { name: 'Tempat Beli / Sales', exact: true }).click()
-  return { calls, hold: () => { gate = new Promise<void>(resolve => { release = resolve }); return () => release() }, failNext: () => { fail = true } }
+  return {
+    calls,
+    hold: () => {
+      gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      return () => release()
+    },
+    failNext: () => {
+      fail = true
+    },
+  }
 }
 
 for (const width of [390, 1440]) {
@@ -42,17 +87,28 @@ for (const width of [390, 1440]) {
     await page.setViewportSize({ width, height: 844 })
     const api = await setup(page)
     await expect(page).toHaveURL(/\?toko=1$/)
-    await page.getByRole('button', { name: 'Edit Toko Makmur', exact: true }).getByText('Toko Makmur', { exact: true }).click()
+    await page
+      .getByRole('button', { name: 'Edit Toko Makmur', exact: true })
+      .getByText('Toko Makmur', { exact: true })
+      .click()
     const panel = page.getByRole('dialog', { name: 'Edit Tempat Beli / Sales', exact: true })
     await expect(panel).toBeVisible()
-    await expect.poll(() => panel.evaluate(node => Math.round(node.getBoundingClientRect().bottom))).toBeLessThanOrEqual(844)
+    await expect
+      .poll(() => panel.evaluate((node) => Math.round(node.getBoundingClientRect().bottom)))
+      .toBeLessThanOrEqual(844)
     if (width < 768) {
-      await expect.poll(() => panel.evaluate(node => Math.round(node.getBoundingClientRect().bottom))).toBe(844)
+      await expect
+        .poll(() => panel.evaluate((node) => Math.round(node.getBoundingClientRect().bottom)))
+        .toBe(844)
       expect((await panel.boundingBox())!.x).toBe(0)
-      expect(await panel.evaluate(node => getComputedStyle(node).animationName)).toBe('ui-sheet-in')
+      expect(await panel.evaluate((node) => getComputedStyle(node).animationName)).toBe(
+        'ui-sheet-in',
+      )
     } else {
       expect((await panel.boundingBox())!.width).toBeLessThan(800)
-      expect(await panel.evaluate(node => getComputedStyle(node).animationName)).toBe('ui-modal-in')
+      expect(await panel.evaluate((node) => getComputedStyle(node).animationName)).toBe(
+        'ui-modal-in',
+      )
     }
     const trigger = panel.getByRole('button', { name: 'Jenis', exact: true })
     await trigger.click()
@@ -74,7 +130,9 @@ for (const width of [390, 1440]) {
       await page.keyboard.press('Escape')
       await expect(panel).toBeVisible()
       expect(api.calls).toHaveLength(1)
-    } finally { release() }
+    } finally {
+      release()
+    }
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(page.getByRole('status')).toContainText('tersimpan')
     await expect(page.getByRole('button', { name: 'Edit Sales Baru', exact: true })).toBeVisible()
@@ -90,28 +148,34 @@ for (const width of [390, 1440]) {
   })
 }
 
-test('panel mempertahankan isian saat error dan konfirmasi tutup, mendukung reduced motion', async ({ page }) => {
+test('panel mempertahankan isian saat error dan konfirmasi tutup, mendukung reduced motion', async ({
+  page,
+}) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   const api = await setup(page)
   await page.getByRole('button', { name: 'Tambah Tempat Beli / Sales', exact: true }).click()
   const panel = page.getByRole('dialog')
-  expect(await panel.evaluate(node => getComputedStyle(node).animationName)).toBe('none')
+  expect(await panel.evaluate((node) => getComputedStyle(node).animationName)).toBe('none')
   await panel.getByLabel('Nama tempat beli / sales', { exact: true }).fill('Draft Supplier')
   api.failNext()
   await panel.getByRole('button', { name: 'Simpan Sumber Pembelian', exact: true }).click()
   await expect(panel.getByRole('alert')).toContainText('Gagal menyimpan')
-  await expect(panel.getByLabel('Nama tempat beli / sales', { exact: true })).toHaveValue('Draft Supplier')
-  page.once('dialog', dialog => dialog.dismiss())
+  await expect(panel.getByLabel('Nama tempat beli / sales', { exact: true })).toHaveValue(
+    'Draft Supplier',
+  )
+  page.once('dialog', (dialog) => dialog.dismiss())
   await page.keyboard.press('Escape')
   await expect(panel).toBeVisible()
-  page.once('dialog', dialog => dialog.accept())
+  page.once('dialog', (dialog) => dialog.accept())
   await page.keyboard.press('Escape')
   await expect(panel).toHaveCount(0)
   expect(await page.evaluate(() => document.body.style.overflow)).not.toBe('hidden')
 })
 
 for (const width of [390, 1440]) {
-  test(`pengaturan perangkat diedit melalui panel dan tersimpan lokal ${width}px`, async ({ page }) => {
+  test(`pengaturan perangkat diedit melalui panel dan tersimpan lokal ${width}px`, async ({
+    page,
+  }) => {
     await page.setViewportSize({ width, height: 844 })
     await setup(page)
     await page.getByLabel('Menu lainnya', { exact: true }).click()
@@ -122,15 +186,21 @@ for (const width of [390, 1440]) {
     await panel.getByRole('button', { name: 'Simpan pengaturan', exact: true }).click()
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(page.getByRole('heading', { name: 'Toko Baru', exact: true })).toBeVisible()
-    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('toko:devices')!).storeName)).toBe('Toko Baru')
+    expect(
+      await page.evaluate(() => JSON.parse(localStorage.getItem('toko:devices')!).storeName),
+    ).toBe('Toko Baru')
     await page.getByRole('button', { name: 'Edit perangkat', exact: true }).click()
-    await expect(page.getByRole('dialog').getByRole('button', { name: 'Cara cetak', exact: true })).toBeVisible()
+    await expect(
+      page.getByRole('dialog').getByRole('button', { name: 'Cara cetak', exact: true }),
+    ).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(page.getByRole('dialog')).toHaveCount(0)
   })
 }
 
-test('notifikasi yang sama memulai ulang durasi 5 detik dari pemberitahuan terbaru', async ({ page }) => {
+test('notifikasi yang sama memulai ulang durasi 5 detik dari pemberitahuan terbaru', async ({
+  page,
+}) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await setup(page)
   await page.getByLabel('Menu lainnya', { exact: true }).click()

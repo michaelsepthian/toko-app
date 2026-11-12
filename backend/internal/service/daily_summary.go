@@ -5,78 +5,23 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"github.com/shopspring/decimal"
-	"gorm.io/gorm"
 	"net/mail"
 	"regexp"
 	"strings"
 	"time"
 	"toko/backend/internal/apperror"
 	"toko/backend/internal/model"
+	"toko/backend/internal/repository"
 )
 
 var dailyLocation = time.FixedZone("WIB", 7*60*60)
 var summaryUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
-type DailyPayment struct {
-	MetodePembayaranID int64           `json:"metode_pembayaran_id"`
-	Nama               string          `json:"nama"`
-	Jenis              string          `json:"jenis"`
-	JumlahSelesai      int64           `json:"jumlah_selesai"`
-	JumlahBatal        int64           `json:"jumlah_batal"`
-	TotalSelesai       decimal.Decimal `json:"total_selesai"`
-	TotalBatal         decimal.Decimal `json:"total_batal"`
-	BiayaToko          decimal.Decimal `json:"biaya_toko"`
-}
-type DailyPurchase struct {
-	CatatanID    *int64              `json:"catatan_id"`
-	PembelianID  *int64              `json:"pembelian_id"`
-	Nomor        string              `json:"nomor"`
-	Metode       string              `json:"metode"`
-	Total        decimal.Decimal     `json:"total"`
-	BelumDirinci bool                `json:"belum_dirinci"`
-	Catatan      string              `json:"catatan"`
-	Items        []DailyPurchaseItem `json:"items"`
-}
-type DailyPurchaseItem struct {
-	Nama     string          `json:"nama"`
-	Jumlah   decimal.Decimal `json:"jumlah"`
-	Subtotal decimal.Decimal `json:"subtotal"`
-}
-type DailySnapshot struct {
-	Versi                  int             `json:"versi"`
-	TotalPembelian         decimal.Decimal `json:"total_pembelian"`
-	AlokasiSebelumnya      decimal.Decimal `json:"alokasi_sebelumnya"`
-	AlokasiSebelumnyaID    *int64          `json:"alokasi_sebelumnya_id"`
-	SelisihBelanja         decimal.Decimal `json:"selisih_belanja"`
-	Pembelian              []DailyPurchase `json:"pembelian"`
-	PembelianBelumDirinci  decimal.Decimal `json:"pembelian_belum_dirinci"`
-	Tanggal                string          `json:"tanggal"`
-	DihitungPada           time.Time       `json:"dihitung_pada"`
-	HashSumber             string          `json:"hash_sumber"`
-	JumlahSelesai          int64           `json:"jumlah_selesai"`
-	JumlahBatal            int64           `json:"jumlah_batal"`
-	TotalSelesai           decimal.Decimal `json:"total_selesai"`
-	TotalBatal             decimal.Decimal `json:"total_batal"`
-	TotalSebelumPembatalan decimal.Decimal `json:"total_sebelum_pembatalan"`
-	TotalCash              decimal.Decimal `json:"total_cash"`
-	TotalNonCash           decimal.Decimal `json:"total_non_cash"`
-	BiayaToko              decimal.Decimal `json:"biaya_toko"`
-	TotalBersih            decimal.Decimal `json:"total_bersih"`
-	PembelianCash          decimal.Decimal `json:"pembelian_cash"`
-	Metode                 []DailyPayment  `json:"metode"`
-}
-type dailyRow struct {
-	RincianPembelian    json.RawMessage
-	AlokasiSebelumnya   decimal.Decimal
-	AlokasiSebelumnyaID *int64
-	BelumDirinci        decimal.Decimal
-	DailyPayment
-	Sumber       string
-	Terbaru      *time.Time
-	DihitungPada time.Time
-}
+type DailyPayment = model.DailyPayment
+type DailyPurchase = model.DailyPurchase
+type DailyPurchaseItem = model.DailyPurchaseItem
+type DailySnapshot = model.DailySnapshot
 
 func digest(value any) string {
 	raw, _ := json.Marshal(value)
@@ -99,46 +44,8 @@ func SummaryDay(value string, now time.Time) (time.Time, time.Time, error) {
 }
 
 // Satu statement membuat penjualan dan pembelian memakai snapshot database yang sama.
-func dailySnapshot(db *gorm.DB, start, end time.Time) (DailySnapshot, error) {
-	var rows []dailyRow
-	err := db.Raw(`WITH belanja AS (
- SELECT p.total_pembayaran AS total,false AS belum_dirinci,p.updated_at,
- NULL::bigint AS catatan_id,p.id AS pembelian_id,p.nomor,m.nama AS metode,''::text AS catatan
- FROM public.pembelian p JOIN public.metode_pembayaran m ON m.id=p.metode_pembayaran_id
- WHERE p.tanggal>=? AND p.tanggal<? AND p.status='SELESAI'
- AND NOT EXISTS(SELECT 1 FROM public.catatan_belanja c WHERE c.pembelian_id=p.id)
- UNION ALL
- SELECT c.total,c.status='TERBUKA',c.updated_at,c.id,c.pembelian_id,
- coalesce(p.nomor,''),coalesce(m.nama,'Belum dirinci'),c.catatan
- FROM public.catatan_belanja c LEFT JOIN public.pembelian p ON p.id=c.pembelian_id
- LEFT JOIN public.metode_pembayaran m ON m.id=p.metode_pembayaran_id
- WHERE c.tanggal=? AND c.status IN('TERBUKA','SELESAI')
- ), alokasi AS (
- SELECT id,belanja_besok FROM public.ringkasan_harian WHERE tanggal=? ORDER BY id DESC LIMIT 1
- ), harian AS (
- SELECT 'PENJUALAN' AS sumber,m.id AS metode_pembayaran_id,m.nama,m.jenis,
- count(*) FILTER(WHERE p.status='SELESAI') AS jumlah_selesai,
- count(*) FILTER(WHERE p.status='BATAL') AS jumlah_batal,
- coalesce(sum(p.total_tagihan) FILTER(WHERE p.status='SELESAI'),0) AS total_selesai,
- coalesce(sum(p.total_tagihan) FILTER(WHERE p.status='BATAL'),0) AS total_batal,
- coalesce(sum(p.biaya_pembayaran) FILTER(WHERE p.status='SELESAI' AND p.penanggung_biaya='TOKO'),0) AS biaya_toko,
- max(p.updated_at) AS terbaru,0::numeric AS belum_dirinci
- FROM public.penjualan p JOIN public.metode_pembayaran m ON m.id=p.metode_pembayaran_id
- WHERE p.tanggal_pendapatan=? AND p.status IN ('SELESAI','BATAL')
- GROUP BY m.id,m.nama,m.jenis
- UNION ALL
- SELECT 'PEMBELIAN',0,'Semua pembelian','LAINNYA',count(*),0,coalesce(sum(total),0),0,0,max(updated_at),
- coalesce(sum(total) FILTER(WHERE belum_dirinci),0) FROM belanja
- ) SELECT harian.*,statement_timestamp() AS dihitung_pada,
- (SELECT id FROM alokasi) AS alokasi_sebelumnya_id,
- coalesce((SELECT belanja_besok FROM alokasi),0) AS alokasi_sebelumnya,
- (SELECT coalesce(jsonb_agg(jsonb_build_object(
- 'catatan_id',b.catatan_id,'pembelian_id',b.pembelian_id,'nomor',b.nomor,'metode',b.metode,
- 'total',b.total::text,'belum_dirinci',b.belum_dirinci,'catatan',b.catatan,
- 'items',(SELECT coalesce(jsonb_agg(jsonb_build_object('nama',d.nama_produk,'jumlah',d.jumlah::text,'subtotal',d.subtotal::text) ORDER BY d.id),'[]'::jsonb)
- FROM public.detail_pembelian d WHERE d.pembelian_id=b.pembelian_id)
- ) ORDER BY b.pembelian_id NULLS LAST,b.catatan_id),'[]'::jsonb) FROM belanja b) AS rincian_pembelian
- FROM harian ORDER BY sumber,metode_pembayaran_id`, start, end, start.Format("2006-01-02"), start.AddDate(0, 0, -1).Format("2006-01-02"), start.Format("2006-01-02")).Scan(&rows).Error
+func dailySnapshot(store *repository.Store, start, end time.Time) (DailySnapshot, error) {
+	rows, err := store.DailyRows(start, end)
 	result := DailySnapshot{Versi: 2, Tanggal: start.Format("2006-01-02"), Metode: []DailyPayment{}, Pembelian: []DailyPurchase{}}
 	if err != nil {
 		return result, err
@@ -196,7 +103,7 @@ func (s *Service) PreviewDailySummary(ctx context.Context, date string) (DailySn
 	if err != nil {
 		return DailySnapshot{}, err
 	}
-	return dailySnapshot(s.Store.DB.WithContext(ctx), start, end)
+	return dailySnapshot(s.Store.WithContext(ctx), start, end)
 }
 
 type DailySummaryInput struct {
@@ -242,18 +149,19 @@ func (s *Service) SaveDailySummary(ctx context.Context, user model.Pengguna, in 
 		return record, err
 	}
 	requestHash := digest(in)
-	err = s.Store.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?,0))", "daily-summary:"+in.IdempotencyKey).Error; err != nil {
+	err = s.Store.Transaction(ctx, func(tx *repository.Store) error {
+		if err := tx.LockRequest("daily-summary:" + in.IdempotencyKey); err != nil {
 			return err
 		}
-		found := tx.Where("idempotency_key = ?", in.IdempotencyKey).Take(&record).Error
+		var found error
+		record, found = tx.DailySummaryByKey(in.IdempotencyKey)
 		if found == nil {
 			if record.PenggunaID != user.ID || record.RequestHash != requestHash {
 				return apperror.Conflict("Identitas penyimpanan laporan sudah dipakai untuk data berbeda")
 			}
 			return nil
 		}
-		if !errors.Is(found, gorm.ErrRecordNotFound) {
+		if !repository.IsNotFound(found) {
 			return found
 		}
 		if in.VersiPerhitungan != 2 {
@@ -276,7 +184,7 @@ func (s *Service) SaveDailySummary(ctx context.Context, user model.Pengguna, in 
 			email = &in.EmailTujuan
 		}
 		record = model.RingkasanHarian{IdempotencyKey: in.IdempotencyKey, RequestHash: requestHash, Tanggal: model.ReportDate(snapshot.Tanggal), PenggunaID: user.ID, NamaPencatat: user.Nama, NamaToko: strings.TrimSpace(in.NamaToko), EmailTujuan: email, KasAktual: *in.KasAktual, BelanjaBesok: in.BelanjaBesok, KasSeharusnya: expected, TotalDanaSeharusnya: totalExpected, TotalDanaAktual: totalActual, SelisihKas: difference, SisaKas: remaining, Catatan: strings.TrimSpace(in.Catatan), Snapshot: raw}
-		return tx.Create(&record).Error
+		return tx.CreateDailySummary(&record)
 	})
 	return record, err
 }

@@ -4,6 +4,7 @@ services:
   api:
     environment:
       CORS_ORIGIN: https://${APP_DOMAIN:?Isi APP_DOMAIN dengan domain aplikasi VPS}
+      SESSION_COOKIE_SECURE: "true"
 
   frontend:
     image: ${FRONTEND_IMAGE:-toko-frontend:local}
